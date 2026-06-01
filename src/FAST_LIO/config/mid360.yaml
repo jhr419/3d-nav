@@ -39,7 +39,13 @@
             height_filter_en: true         # 是否开启输出地图高度过滤，只发布/保存 h_min 到 h_max 的地图点
             height_filter_local_map_en: false # 是否同时过滤定位用局部地图；开启可能减少约束并导致漂移
             h_min: -10.0                   # 地图高度过滤下限，世界坐标系 z，单位 m
-            h_max: 0.5                    # 地图高度过滤上限，世界坐标系 z，单位 m
+            h_max: 0.35                    # 地图高度过滤上限，世界坐标系 z，单位 m
+            # 减少动态点入图
+            dynamic_filter_en: true        # 是否开启近场动态点入图抑制，减少跟随人员等临时物体写入地图
+            dynamic_filter_min_range: 0.5  # 动态过滤起始距离，雷达坐标系欧氏距离，单位 m
+            dynamic_filter_max_range: 4.0  # 动态过滤最远距离；跟随建图人员通常在 1-3m 内
+            dynamic_filter_search_radius: 0.6 # 世界坐标系历史地图支撑搜索半径，单位 m
+            dynamic_filter_min_neighbors: 3 # 搜索半径内至少多少个历史地图点才允许写入地图
             extrinsic_est_en:  true        # 是否在线估计 IMU 到雷达外参
             extrinsic_T: [ -0.011, -0.02329, 0.04412 ] # 雷达到 IMU 的平移外参
             extrinsic_R: [ 1., 0., 0.,

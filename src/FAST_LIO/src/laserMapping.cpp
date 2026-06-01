@@ -168,13 +168,16 @@ double gyr_cov = 0.1, acc_cov = 0.1, b_gyr_cov = 0.0001, b_acc_cov = 0.0001;
 double filter_size_corner_min = 0, filter_size_surf_min = 0, filter_size_map_min = 0, fov_deg = 0;
 double cube_len = 0, HALF_FOV_COS = 0, FOV_DEG = 0, total_distance = 0, lidar_end_time = 0, first_lidar_time = 0.0;
 double map_height_min = -1.0e9, map_height_max = 1.0e9;
+double dynamic_filter_min_range = 0.0, dynamic_filter_max_range = 3.0, dynamic_filter_search_radius = 0.6;
 int    effct_feat_num = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
 int    iterCount = 0, feats_down_size = 0, NUM_MAX_ITERATIONS = 0, laserCloudValidNum = 0, pcd_save_interval = -1, pcd_index = 0;
+int    dynamic_filter_min_neighbors = 3;
 bool   point_selected_surf[100000] = {0};
 bool   lidar_pushed, flg_first_scan = true, flg_exit = false, flg_EKF_inited;
 bool   scan_pub_en = false, dense_pub_en = false, scan_body_pub_en = false;
 bool   map_height_filter_en = false;
 bool   map_height_filter_local_map_en = false;
+bool   dynamic_filter_en = false;
 bool    is_first_lidar = true;
 
 vector<vector<int>>  pointSearchInd_surf; 
@@ -529,6 +532,43 @@ inline bool pass_local_map_height_filter(const PointType &point_world)
     return !map_height_filter_local_map_en || pass_map_height_filter(point_world);
 }
 
+inline bool pass_dynamic_map_filter(const int point_index)
+{
+    if (!dynamic_filter_en || !flg_EKF_inited)
+    {
+        return true;
+    }
+
+    const PointType &point_body = feats_down_body->points[point_index];
+    const double range_sq = point_body.x * point_body.x + point_body.y * point_body.y + point_body.z * point_body.z;
+    if (range_sq < dynamic_filter_min_range * dynamic_filter_min_range ||
+        range_sq > dynamic_filter_max_range * dynamic_filter_max_range)
+    {
+        return true;
+    }
+
+    if (point_selected_surf[point_index])
+    {
+        return true;
+    }
+
+    const double search_radius_sq = dynamic_filter_search_radius * dynamic_filter_search_radius;
+    int supported_neighbors = 0;
+    for (const auto &point_near : Nearest_Points[point_index])
+    {
+        if (calc_dist(feats_down_world->points[point_index], point_near) <= search_radius_sq)
+        {
+            supported_neighbors++;
+            if (supported_neighbors >= dynamic_filter_min_neighbors)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 void map_incremental()
 {
     PointVector PointToAdd;
@@ -540,6 +580,10 @@ void map_incremental()
         /* transform to world frame */
         pointBodyToWorld(&(feats_down_body->points[i]), &(feats_down_world->points[i]));
         if (!pass_local_map_height_filter(feats_down_world->points[i]))
+        {
+            continue;
+        }
+        if (!pass_dynamic_map_filter(i))
         {
             continue;
         }
@@ -930,6 +974,11 @@ public:
         this->declare_parameter<bool>("mapping.height_filter_local_map_en", false);
         this->declare_parameter<double>("mapping.h_min", -1.0e9);
         this->declare_parameter<double>("mapping.h_max", 1.0e9);
+        this->declare_parameter<bool>("mapping.dynamic_filter_en", false);
+        this->declare_parameter<double>("mapping.dynamic_filter_min_range", 0.0);
+        this->declare_parameter<double>("mapping.dynamic_filter_max_range", 3.0);
+        this->declare_parameter<double>("mapping.dynamic_filter_search_radius", 0.6);
+        this->declare_parameter<int>("mapping.dynamic_filter_min_neighbors", 3);
         this->declare_parameter<double>("preprocess.blind", 0.01);
         this->declare_parameter<int>("preprocess.lidar_type", AVIA);
         this->declare_parameter<int>("preprocess.scan_line", 16);
@@ -975,10 +1024,30 @@ public:
         this->get_parameter_or<bool>("mapping.height_filter_local_map_en", map_height_filter_local_map_en, false);
         this->get_parameter_or<double>("mapping.h_min", map_height_min, -1.0e9);
         this->get_parameter_or<double>("mapping.h_max", map_height_max, 1.0e9);
+        this->get_parameter_or<bool>("mapping.dynamic_filter_en", dynamic_filter_en, false);
+        this->get_parameter_or<double>("mapping.dynamic_filter_min_range", dynamic_filter_min_range, 0.0);
+        this->get_parameter_or<double>("mapping.dynamic_filter_max_range", dynamic_filter_max_range, 3.0);
+        this->get_parameter_or<double>("mapping.dynamic_filter_search_radius", dynamic_filter_search_radius, 0.6);
+        this->get_parameter_or<int>("mapping.dynamic_filter_min_neighbors", dynamic_filter_min_neighbors, 3);
         if (map_height_filter_en && map_height_min > map_height_max)
         {
             RCLCPP_WARN(this->get_logger(), "mapping.h_min is greater than mapping.h_max. Disable height filter.");
             map_height_filter_en = false;
+        }
+        if (dynamic_filter_en)
+        {
+            if (dynamic_filter_min_range < 0.0) dynamic_filter_min_range = 0.0;
+            if (dynamic_filter_max_range < dynamic_filter_min_range)
+            {
+                RCLCPP_WARN(this->get_logger(), "mapping.dynamic_filter_max_range is smaller than min_range. Disable dynamic filter.");
+                dynamic_filter_en = false;
+            }
+            if (dynamic_filter_search_radius <= 0.0)
+            {
+                RCLCPP_WARN(this->get_logger(), "mapping.dynamic_filter_search_radius must be positive. Disable dynamic filter.");
+                dynamic_filter_en = false;
+            }
+            if (dynamic_filter_min_neighbors < 1) dynamic_filter_min_neighbors = 1;
         }
         this->get_parameter_or<double>("preprocess.blind", p_pre->blind, 0.01);
         this->get_parameter_or<int>("preprocess.lidar_type", p_pre->lidar_type, AVIA);
@@ -1010,6 +1079,9 @@ public:
         RCLCPP_INFO(this->get_logger(), "map height filter %s [%.3f, %.3f] m, local map filter %s",
                     map_height_filter_en ? "enabled" : "disabled", map_height_min, map_height_max,
                     map_height_filter_local_map_en ? "enabled" : "disabled");
+        RCLCPP_INFO(this->get_logger(), "dynamic map filter %s, range [%.3f, %.3f] m, radius %.3f m, min neighbors %d",
+                    dynamic_filter_en ? "enabled" : "disabled", dynamic_filter_min_range,
+                    dynamic_filter_max_range, dynamic_filter_search_radius, dynamic_filter_min_neighbors);
 
         path.header.stamp = this->get_clock()->now();
         path.header.frame_id ="camera_init";

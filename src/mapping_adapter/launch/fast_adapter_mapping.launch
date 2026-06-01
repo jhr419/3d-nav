@@ -1,0 +1,29 @@
+<launch>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="mapping_dir" default="./fastlio_adapter_mid360_map"/>
+  <arg name="rviz_config" default="$(find-pkg-share mapping_adapter)/rviz/livox_mid360_fastlio_dddmr_mapping.rviz"/>
+
+  # 启动fastlio2建图节点
+  <include file="$(find-pkg-share fast_lio)/launch/mapping.launch.py">
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="config_path" value="$(find-pkg-share fast_lio)/config"/>
+    <arg name="config_file" value="mid360.yaml"/>
+    <arg name="rviz" value="false"/>
+  </include>
+
+  # 启动适配器节点
+  <node pkg="mapping_adapter" exec="mapping_adapter_node" output="screen">
+    <param from="$(find-pkg-share mapping_adapter)/config/livox_mid360_dddmr_adapter.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="mapping_dir" value="$(var mapping_dir)"/>
+  </node>
+
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="baselink2footprint"
+        args="0.0 0 -0.24 0.0 0.0 0 base_link base_footprint"/>
+
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="baselink2mid360"
+        args="0.3 0 0.38 -0.034101, -0.566395 0 base_link livox_frame"/>
+
+  <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" respawn="false"
+          args="-d $(var rviz_config)"/>
+</launch>

@@ -1,0 +1,49 @@
+/**:
+  ros__parameters:
+    # GLIM's rviz_viewer extension publishes map -> odom -> base_frame.
+    # This adapter samples GLIM's processed scan cloud and uses TF for the keyframe pose.
+    pose_source: "tf"
+    pose_frame: "base_link"
+    pose_lookup_timeout_s: 0.05
+
+    # Kept as fallbacks/debug inputs. In pure GLIM mode the pose comes from TF.
+    odom_topic: "/glim_ros/lidar_odom"
+    # /glim_ros/points is published after GLIM processes a frame, so the matching TF is available.
+    body_cloud_topic: "/glim_ros/points"
+    map_cloud_topic: "/glim_ros/map"
+
+    map_frame: "map"
+    base_frame: "base_link"
+    child_frame: "base_link"
+    publish_tf: false
+    publish_period_s: 1.0
+
+    # Directory consumed by dddmr_mcl_3dl: map.pcd, ground.pcd, poses.pcd, edges.pcd, pcd/N_*.pcd.
+    mapping_dir: "/tmp/dddmr_glim_mid360_map"
+    save_on_shutdown: false
+
+    # GLIM /points is normally in the LiDAR frame. These values are T_base_lidar.
+    # If your GLIM config publishes /glim_ros/points in the IMU frame, set this to T_base_imu.
+    base_to_body_xyz: [0.3, 0.0, 0.38]
+    base_to_body_rpy: [0.0, 0.485596, 0.0]
+
+    # If you set pose_frame to a non-base frame, set T_base_pose here.
+    base_to_pose_xyz: [0.0, 0.0, 0.0]
+    base_to_pose_rpy: [0.0, 0.0, 0.0]
+
+    keyframe_distance: 0.5
+    keyframe_angle: 0.5
+    keyframe_min_points: 100
+    keyframe_cloud_leaf_size: 0.15
+    global_map_leaf_size: 0.25
+
+    min_range: 0.5
+    max_range: 60.0
+
+    # Simple base_link-frame ground split for DDDMR localization.
+    # Tune these for your robot height and Mid360 mounting.
+    ground_z_min: -0.45
+    ground_z_max: 0.20
+    ground_abs_slope_max: 0.35
+    feature_min_z: -0.20
+    keep_ground_in_features: false
