@@ -25,6 +25,10 @@ def generate_launch_description():
     rosbag_path = LaunchConfiguration('rosbag_path')
     rosbag_storage_id = LaunchConfiguration('rosbag_storage_id')
     rosbag_auto_shutdown = LaunchConfiguration('rosbag_auto_shutdown')
+    localization_mode = LaunchConfiguration('localization_mode')
+    lid_topic = LaunchConfiguration('lid_topic')
+    imu_topic = LaunchConfiguration('imu_topic')
+    lidar_type = LaunchConfiguration('lidar_type')
 
     declare_use_sim_time_cmd = DeclareLaunchArgument(
         'use_sim_time', default_value='false',
@@ -62,6 +66,22 @@ def generate_launch_description():
         'rosbag_auto_shutdown', default_value='true',
         description='Shutdown after direct rosbag mapping finishes'
     )
+    declare_localization_mode_cmd = DeclareLaunchArgument(
+        'localization_mode', default_value='false',
+        description='Run FAST-LIO as a lightweight odometry source without building the map'
+    )
+    declare_lid_topic_cmd = DeclareLaunchArgument(
+        'lid_topic', default_value='/livox/lidar',
+        description='Input LiDAR topic for FAST-LIO'
+    )
+    declare_imu_topic_cmd = DeclareLaunchArgument(
+        'imu_topic', default_value='/livox/imu',
+        description='Input IMU topic for FAST-LIO'
+    )
+    declare_lidar_type_cmd = DeclareLaunchArgument(
+        'lidar_type', default_value='1',
+        description='FAST-LIO lidar_type: 1 Livox CustomMsg, non-1 uses PointCloud2 subscription'
+    )
 
     fast_lio_node = Node(
         package='fast_lio',
@@ -71,7 +91,11 @@ def generate_launch_description():
                     {'rosbag.enable': rosbag_enable},
                     {'rosbag.path': rosbag_path},
                     {'rosbag.storage_id': rosbag_storage_id},
-                    {'rosbag.auto_shutdown': rosbag_auto_shutdown}],
+                    {'rosbag.auto_shutdown': rosbag_auto_shutdown},
+                    {'localization.odom_only_mode': localization_mode},
+                    {'common.lid_topic': lid_topic},
+                    {'common.imu_topic': imu_topic},
+                    {'preprocess.lidar_type': lidar_type}],
         output='screen'
     )
     rviz_node = Node(
@@ -91,6 +115,10 @@ def generate_launch_description():
     ld.add_action(declare_rosbag_path_cmd)
     ld.add_action(declare_rosbag_storage_id_cmd)
     ld.add_action(declare_rosbag_auto_shutdown_cmd)
+    ld.add_action(declare_localization_mode_cmd)
+    ld.add_action(declare_lid_topic_cmd)
+    ld.add_action(declare_imu_topic_cmd)
+    ld.add_action(declare_lidar_type_cmd)
 
     ld.add_action(fast_lio_node)
     ld.add_action(rviz_node)

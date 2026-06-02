@@ -178,6 +178,7 @@ bool   scan_pub_en = false, dense_pub_en = false, scan_body_pub_en = false;
 bool   map_height_filter_en = false;
 bool   map_height_filter_local_map_en = false;
 bool   dynamic_filter_en = false;
+bool   odom_only_mode = false;
 bool    is_first_lidar = true;
 
 vector<vector<int>>  pointSearchInd_surf; 
@@ -688,6 +689,11 @@ void publish_frame_world(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Share
 void publish_frame_body(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFull_body)
 {
     int size = feats_undistort->points.size();
+    if (size <= 0)
+    {
+        RCLCPP_WARN(rclcpp::get_logger("laser_mapping"), "Skip /cloud_registered_body publish: feats_undistort is empty.");
+        return;
+    }
     PointCloudXYZI::Ptr laserCloudIMUBody(new PointCloudXYZI(size, 1));
 
     for (int i = 0; i < size; i++)
@@ -701,6 +707,10 @@ void publish_frame_body(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Shared
     laserCloudmsg.header.stamp = get_ros_time(lidar_end_time);
     laserCloudmsg.header.frame_id = "body";
     pubLaserCloudFull_body->publish(laserCloudmsg);
+    static rclcpp::Clock publish_log_clock(RCL_ROS_TIME);
+    RCLCPP_INFO_THROTTLE(
+        rclcpp::get_logger("laser_mapping"), publish_log_clock, 3000,
+        "Published /cloud_registered_body points=%d", size);
     publish_count -= PUBFRAME_PERIOD;
 }
 
@@ -960,6 +970,7 @@ public:
         this->declare_parameter<string>("rosbag.path", "");
         this->declare_parameter<string>("rosbag.storage_id", "sqlite3");
         this->declare_parameter<bool>("rosbag.auto_shutdown", true);
+        this->declare_parameter<bool>("localization.odom_only_mode", false);
         this->declare_parameter<double>("filter_size_corner", 0.5);
         this->declare_parameter<double>("filter_size_surf", 0.5);
         this->declare_parameter<double>("filter_size_map", 0.5);
@@ -1010,6 +1021,7 @@ public:
         this->get_parameter_or<string>("rosbag.path", rosbag_path_, "");
         this->get_parameter_or<string>("rosbag.storage_id", rosbag_storage_id_, "sqlite3");
         this->get_parameter_or<bool>("rosbag.auto_shutdown", rosbag_auto_shutdown_, true);
+        this->get_parameter_or<bool>("localization.odom_only_mode", odom_only_mode, false);
         this->get_parameter_or<double>("filter_size_corner",filter_size_corner_min,0.5);
         this->get_parameter_or<double>("filter_size_surf",filter_size_surf_min,0.5);
         this->get_parameter_or<double>("filter_size_map",filter_size_map_min,0.5);
@@ -1072,6 +1084,15 @@ public:
         this->get_parameter_or<int>("pcd_save.interval", pcd_save_interval, -1);
         this->get_parameter_or<vector<double>>("mapping.extrinsic_T", extrinT, vector<double>());
         this->get_parameter_or<vector<double>>("mapping.extrinsic_R", extrinR, vector<double>());
+        if (odom_only_mode)
+        {
+            map_pub_en = false;
+            effect_pub_en = false;
+            pcd_save_en = false;
+            runtime_pos_log = false;
+            scan_pub_en = false;
+            scan_body_pub_en = true;
+        }
 
         RCLCPP_INFO(this->get_logger(), "p_pre->lidar_type %d", p_pre->lidar_type);
         RCLCPP_INFO(this->get_logger(), "input RPY rotation [%.6f, %.6f, %.6f] rad",
@@ -1082,6 +1103,8 @@ public:
         RCLCPP_INFO(this->get_logger(), "dynamic map filter %s, range [%.3f, %.3f] m, radius %.3f m, min neighbors %d",
                     dynamic_filter_en ? "enabled" : "disabled", dynamic_filter_min_range,
                     dynamic_filter_max_range, dynamic_filter_search_radius, dynamic_filter_min_neighbors);
+        RCLCPP_INFO(this->get_logger(), "FAST-LIO localization odom-only mode %s",
+                    odom_only_mode ? "enabled" : "disabled");
 
         path.header.stamp = this->get_clock()->now();
         path.header.frame_id ="camera_init";
@@ -1195,7 +1218,13 @@ private:
 
     bool process_once()
     {
-        if(sync_packages(Measures))
+        if(!sync_packages(Measures))
+        {
+            log_frontend_wait_status();
+            return false;
+        }
+
+        if(true)
         {
             if (flg_first_scan)
             {
@@ -1216,7 +1245,12 @@ private:
 
             p_imu->Process(Measures, kf, feats_undistort);
             state_point = kf.get_x();
+            euler_cur = SO3ToEuler(state_point.rot);
             pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
+            geoQuat.x = state_point.rot.coeffs()[0];
+            geoQuat.y = state_point.rot.coeffs()[1];
+            geoQuat.z = state_point.rot.coeffs()[2];
+            geoQuat.w = state_point.rot.coeffs()[3];
 
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
@@ -1226,6 +1260,15 @@ private:
 
             flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? \
                             false : true;
+
+            if (odom_only_mode)
+            {
+                publish_odometry(pubOdomAftMapped_, tf_broadcaster_);
+                if (path_en) publish_path(pubPath_);
+                publish_frame_body(pubLaserCloudFull_body_);
+                return true;
+            }
+
             /*** Segment the map in lidar FOV ***/
             lasermap_fov_segment();
 
@@ -1354,8 +1397,20 @@ private:
 
             return true;
         }
+    }
 
-        return false;
+    void log_frontend_wait_status()
+    {
+        if (!odom_only_mode) {
+            return;
+        }
+
+        RCLCPP_INFO_THROTTLE(
+            this->get_logger(), *this->get_clock(), 3000,
+            "FAST-LIO odom-only waiting: lidar_buffer=%zu imu_buffer=%zu lidar_topic=%s imu_topic=%s "
+            "last_lidar=%.6f last_imu=%.6f lidar_end=%.6f lidar_type=%d",
+            lidar_buffer.size(), imu_buffer.size(), lid_topic.c_str(), imu_topic.c_str(),
+            last_timestamp_lidar, last_timestamp_imu, lidar_end_time, p_pre->lidar_type);
     }
 
     template<typename MessageT>

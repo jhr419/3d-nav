@@ -7,16 +7,23 @@ relocalizing a robot against an existing FAST-LIO / mapping_adapter map.
 
 ```bash
 ros2 launch localization_adapter fastlio_icp_localization.launch \
-  map_pcd_path:=/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd
+  visualization_map_pcd_path:=/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/ground.pcd \
+  icp_map_pcd_path:=/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd
 ```
 
 The launch runs `icp_localization_node` and opens RViz. By default it does not
-start FAST-LIO, so RViz first shows the prior map from `/icp_map`. Use the
-`2D Pose Estimate` tool to publish `/initialpose`; ICP will start after odometry
-and scan topics are available. The odometry topic is FAST-LIO's `/Odometry` by
-default, and the scan topic is FAST-LIO's `/cloud_registered_body`.
+start FAST-LIO, so RViz first shows the ground map from
+`/icp_visualization_map`. Use the `2D Pose Estimate` tool to publish
+`/initialpose`; ICP registers against the non-ground target map from
+`icp_map_pcd_path` after odometry and scan topics are available. The odometry
+topic is FAST-LIO's `/Odometry` by default, and the scan topic is FAST-LIO's
+`/cloud_registered_body`.
 
-If you want this launch to also start FAST-LIO as the odometry/scan source, add:
+If you want this launch to also start FAST-LIO as the odometry/scan source, add
+the option below. The launch uses FAST-LIO's
+`config/mid360_localization.yaml`, where `localization.odom_only_mode: true`
+publishes `/Odometry` and `/cloud_registered_body` without building the
+FAST-LIO map.
 
 ```bash
 start_fastlio:=true
@@ -38,7 +45,8 @@ fastlio_odom_topic:=/Odometry fastlio_scan_topic:=/cloud_registered_body
 
 - `/icp_pose`
 - `/icp_aligned_cloud`
-- `/icp_map`
+- `/icp_visualization_map`
+- `/icp_map` non-ground ICP target map
 - `/tf`: `map -> camera_init` by default
 
 Send an initial pose from RViz/Nav2 on `/initialpose` to initialize or

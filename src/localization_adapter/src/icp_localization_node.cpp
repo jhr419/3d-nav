@@ -100,6 +100,9 @@ public:
   : Node("icp_localization_node")
   {
     map_pcd_path_ = declare_parameter<std::string>("map_pcd_path", "");
+    icp_map_pcd_path_ = declare_parameter<std::string>("icp_map_pcd_path", map_pcd_path_);
+    visualization_map_pcd_path_ =
+      declare_parameter<std::string>("visualization_map_pcd_path", map_pcd_path_);
     odom_topic_ = declare_parameter<std::string>("odom_topic", "/Odometry");
     scan_topic_ = declare_parameter<std::string>("scan_topic", "/cloud_registered_body");
     initialpose_topic_ = declare_parameter<std::string>("initialpose_topic", "/initialpose");
@@ -107,6 +110,7 @@ public:
     odom_frame_ = declare_parameter<std::string>("odom_frame", "camera_init");
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     publish_tf_ = declare_parameter<bool>("publish_tf", true);
+    publish_base_tf_ = declare_parameter<bool>("publish_base_tf", true);
     publish_map_cloud_ = declare_parameter<bool>("publish_map_cloud", true);
 
     min_range_ = declare_parameter<double>("min_range", 0.5);
@@ -114,6 +118,8 @@ public:
     scan_leaf_size_ = declare_parameter<double>("scan_leaf_size", 0.25);
     map_leaf_size_ = declare_parameter<double>("map_leaf_size", 0.25);
     min_scan_points_ = declare_parameter<int>("min_scan_points", 120);
+    source_non_ground_min_z_ = declare_parameter<double>("source_non_ground_min_z", -0.2);
+    source_non_ground_filter_en_ = declare_parameter<bool>("source_non_ground_filter_en", true);
     max_correspondence_distance_ = declare_parameter<double>("max_correspondence_distance", 1.5);
     transformation_epsilon_ = declare_parameter<double>("transformation_epsilon", 0.01);
     euclidean_fitness_epsilon_ = declare_parameter<double>("euclidean_fitness_epsilon", 0.01);
@@ -135,19 +141,41 @@ public:
     body_to_base_ = base_to_body_.inverse();
     initial_map_to_base_ = makeTransform(initial_pose_xyz, initial_pose_rpy);
 
-    map_cloud_ = loadMapCloud(map_pcd_path_);
-    if (!map_cloud_ || map_cloud_->empty()) {
+    if (icp_map_pcd_path_.empty()) {
+      icp_map_pcd_path_ = map_pcd_path_;
+    }
+    if (visualization_map_pcd_path_.empty()) {
+      visualization_map_pcd_path_ = map_pcd_path_;
+    }
+
+    icp_map_cloud_ = loadMapCloud(icp_map_pcd_path_);
+    if (!icp_map_cloud_ || icp_map_cloud_->empty()) {
       RCLCPP_ERROR(
         get_logger(),
-        "Failed to load ICP map PCD: '%s'. Set map_pcd_path to an existing map.pcd.",
-        map_pcd_path_.c_str());
+        "Failed to load ICP target map PCD: '%s'. Set icp_map_pcd_path to the non-ground map.",
+        icp_map_pcd_path_.c_str());
     } else {
-      downsample(map_cloud_, map_leaf_size_);
-      icp_.setInputTarget(map_cloud_);
+      downsample(icp_map_cloud_, map_leaf_size_);
+      icp_.setInputTarget(icp_map_cloud_);
       RCLCPP_INFO(
         get_logger(),
-        "Loaded ICP map: %s points=%zu leaf=%.3f",
-        map_pcd_path_.c_str(), map_cloud_->size(), map_leaf_size_);
+        "Loaded ICP target map: %s points=%zu leaf=%.3f",
+        icp_map_pcd_path_.c_str(), icp_map_cloud_->size(), map_leaf_size_);
+    }
+
+    visualization_map_cloud_ = loadMapCloud(visualization_map_pcd_path_);
+    if (!visualization_map_cloud_ || visualization_map_cloud_->empty()) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Visualization map PCD is empty: '%s'. Falling back to ICP target map for display.",
+        visualization_map_pcd_path_.c_str());
+      visualization_map_cloud_ = icp_map_cloud_;
+    } else {
+      downsample(visualization_map_cloud_, map_leaf_size_);
+      RCLCPP_INFO(
+        get_logger(),
+        "Loaded visualization map: %s points=%zu leaf=%.3f",
+        visualization_map_pcd_path_.c_str(), visualization_map_cloud_->size(), map_leaf_size_);
     }
 
     icp_.setMaximumIterations(max_iterations_);
@@ -167,8 +195,10 @@ public:
 
     pose_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("icp_pose", 10);
     aligned_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("icp_aligned_cloud", 2);
-    map_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+    icp_map_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       "icp_map", rclcpp::QoS(1).transient_local().reliable());
+    visualization_map_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      "icp_visualization_map", rclcpp::QoS(1).transient_local().reliable());
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     if (publish_map_cloud_) {
@@ -190,6 +220,9 @@ private:
     odom_frame_ = msg->header.frame_id.empty() ? odom_frame_ : msg->header.frame_id;
     latest_odom_to_body_ = poseToAffine(msg->pose.pose);
     latest_odom_to_base_ = latest_odom_to_body_ * body_to_base_;
+    if (!have_odom_) {
+      RCLCPP_INFO(get_logger(), "Received first odometry from %s.", odom_topic_.c_str());
+    }
     have_odom_ = true;
 
     if (!have_initial_pose_ && use_initial_pose_param_) {
@@ -263,7 +296,11 @@ private:
   void scanCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!map_cloud_ || map_cloud_->empty()) {
+    if (!have_scan_) {
+      RCLCPP_INFO(get_logger(), "Received first scan from %s.", scan_topic_.c_str());
+      have_scan_ = true;
+    }
+    if (!icp_map_cloud_ || icp_map_cloud_->empty()) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 3000,
         "ICP map is empty; cannot localize.");
@@ -310,6 +347,7 @@ private:
         icp_.hasConverged() ? "true" : "false",
         fitness, fitness_score_threshold_);
       publishTfAndPose(msg->header.stamp, guess_map_to_base, fitness);
+      publishAlignedCloud(aligned, msg->header.stamp);
       return;
     }
 
@@ -318,6 +356,9 @@ private:
     map_to_odom_ = refined_map_to_base * latest_odom_to_base_.inverse();
     publishTfAndPose(msg->header.stamp, refined_map_to_base, fitness);
     publishAlignedCloud(aligned, msg->header.stamp);
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "ICP accepted: fitness=%.4f source_points=%zu", fitness, source_base->size());
   }
 
   pcl::PointCloud<PointType>::Ptr makeSourceCloud(const sensor_msgs::msg::PointCloud2 & msg) const
@@ -339,6 +380,9 @@ private:
 
       const Eigen::Vector3d base_xyz =
         body_to_base_ * Eigen::Vector3d(p_body.x, p_body.y, p_body.z);
+      if (source_non_ground_filter_en_ && base_xyz.z() < source_non_ground_min_z_) {
+        continue;
+      }
       PointType p_base;
       p_base.x = static_cast<float>(base_xyz.x());
       p_base.y = static_cast<float>(base_xyz.y());
@@ -362,6 +406,19 @@ private:
       transform.header.frame_id = map_frame_;
       transform.child_frame_id = odom_frame_;
       const auto pose = affineToPose(map_to_odom_);
+      transform.transform.translation.x = pose.position.x;
+      transform.transform.translation.y = pose.position.y;
+      transform.transform.translation.z = pose.position.z;
+      transform.transform.rotation = pose.orientation;
+      tf_broadcaster_->sendTransform(transform);
+    }
+
+    if (publish_base_tf_) {
+      geometry_msgs::msg::TransformStamped transform;
+      transform.header.stamp = stamp;
+      transform.header.frame_id = map_frame_;
+      transform.child_frame_id = base_frame_;
+      const auto pose = affineToPose(map_to_base);
       transform.transform.translation.x = pose.position.x;
       transform.transform.translation.y = pose.position.y;
       transform.transform.translation.z = pose.position.z;
@@ -394,18 +451,27 @@ private:
 
   void publishMapCloud() const
   {
-    if (!map_cloud_ || map_cloud_->empty()) {
-      return;
+    if (visualization_map_cloud_ && !visualization_map_cloud_->empty()) {
+      sensor_msgs::msg::PointCloud2 cloud_msg;
+      pcl::toROSMsg(*visualization_map_cloud_, cloud_msg);
+      cloud_msg.header.stamp = now();
+      cloud_msg.header.frame_id = map_frame_;
+      visualization_map_pub_->publish(cloud_msg);
     }
-    sensor_msgs::msg::PointCloud2 cloud_msg;
-    pcl::toROSMsg(*map_cloud_, cloud_msg);
-    cloud_msg.header.stamp = now();
-    cloud_msg.header.frame_id = map_frame_;
-    map_pub_->publish(cloud_msg);
+
+    if (icp_map_cloud_ && !icp_map_cloud_->empty()) {
+      sensor_msgs::msg::PointCloud2 cloud_msg;
+      pcl::toROSMsg(*icp_map_cloud_, cloud_msg);
+      cloud_msg.header.stamp = now();
+      cloud_msg.header.frame_id = map_frame_;
+      icp_map_pub_->publish(cloud_msg);
+    }
   }
 
   std::mutex mutex_;
   std::string map_pcd_path_;
+  std::string icp_map_pcd_path_;
+  std::string visualization_map_pcd_path_;
   std::string odom_topic_;
   std::string scan_topic_;
   std::string initialpose_topic_;
@@ -413,6 +479,7 @@ private:
   std::string odom_frame_;
   std::string base_frame_;
   bool publish_tf_ = true;
+  bool publish_base_tf_ = true;
   bool publish_map_cloud_ = true;
   bool use_initial_pose_param_ = false;
 
@@ -421,6 +488,8 @@ private:
   double scan_leaf_size_ = 0.25;
   double map_leaf_size_ = 0.25;
   int min_scan_points_ = 120;
+  double source_non_ground_min_z_ = -0.2;
+  bool source_non_ground_filter_en_ = true;
   double max_correspondence_distance_ = 1.5;
   double transformation_epsilon_ = 0.01;
   double euclidean_fitness_epsilon_ = 0.01;
@@ -438,10 +507,12 @@ private:
   builtin_interfaces::msg::Time latest_odom_stamp_;
   rclcpp::Time last_icp_stamp_{0, 0, RCL_ROS_TIME};
   bool have_odom_ = false;
+  bool have_scan_ = false;
   bool have_initial_pose_ = false;
   bool have_pending_initial_pose_ = false;
 
-  pcl::PointCloud<PointType>::Ptr map_cloud_;
+  pcl::PointCloud<PointType>::Ptr icp_map_cloud_;
+  pcl::PointCloud<PointType>::Ptr visualization_map_cloud_;
   pcl::IterativeClosestPoint<PointType, PointType> icp_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
@@ -449,7 +520,8 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aligned_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr icp_map_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr visualization_map_pub_;
   rclcpp::TimerBase::SharedPtr map_publish_timer_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 };

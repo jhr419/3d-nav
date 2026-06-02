@@ -22,7 +22,7 @@
             auto_shutdown: true            # bag 读取完成后是否自动退出节点并保存地图
 
         localization:
-            odom_only_mode: false          # 定位前端轻量模式：只发布 /Odometry 和 /cloud_registered_body，不构建 FAST-LIO 地图
+            odom_only_mode: true           # 定位前端轻量模式：只发布 /Odometry 和 /cloud_registered_body，不构建 FAST-LIO 地图
 
         preprocess:
             lidar_type: 1                  # 雷达类型：1 Livox，2 Velodyne，3 Ouster，4 其他 PointCloud2
@@ -58,12 +58,12 @@
         publish:
             path_en: true                  # 是否发布轨迹 Path
             effect_map_en: false           # 是否发布参与匹配的有效点云
-            map_en: true                   # 是否发布局部/全局地图点云
-            scan_publish_en:  true         # 是否发布配准后的点云
+            map_en: false                  # 定位模式不发布 FAST-LIO 地图
+            scan_publish_en:  false        # 定位模式不发布世界系配准点云，减少计算和内存占用
             dense_publish_en: true         # 是否发布稠密点云；false 会减少全局点云数量
             scan_bodyframe_pub_en: true    # 是否发布 IMU 机体系下的当前帧点云
 
         pcd_save:
-            pcd_save_en: true              # 是否保存 PCD 地图
-            pcd_save_enable: 1             # 是否启用 PCD 保存开关，1 为启用
+            pcd_save_en: false             # 定位模式不保存 PCD 地图
+            pcd_save_enable: 0             # 定位模式关闭 PCD 保存开关
             interval: -1                   # 每多少帧保存一个 PCD；-1 表示全部保存到一个文件，数据量大时可能占用较多内存

@@ -1,18 +1,30 @@
 <launch>
   <arg name="use_sim_time" default="false"/>
+  
   <arg name="map_pcd_path" default="/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd"/>
+  <arg name="visualization_map_pcd_path" default="/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/ground.pcd"/>
+  <arg name="icp_map_pcd_path" default="/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd"/>
   <arg name="icp_config" default="$(find-pkg-share localization_adapter)/config/fastlio_mid360_icp_localization.yaml"/>
   <arg name="rviz_config" default="$(find-pkg-share localization_adapter)/rviz/icp_localization.rviz"/>
-  <arg name="start_fastlio" default="false"/>
+  <arg name="start_fastlio" default="true"/>
+  <arg name="fastlio_config_file" default="mid360_localization.yaml"/>
+  <arg name="fastlio_lidar_topic" default="/livox/lidar"/>
+  <arg name="fastlio_imu_topic" default="/livox/imu"/>
+  <arg name="fastlio_lidar_type" default="1"/>
   <arg name="fastlio_odom_topic" default="/Odometry"/>
   <arg name="fastlio_scan_topic" default="/cloud_registered_body"/>
+
+  <include file="$(find-pkg-share livox_ros_driver2)/launch_ROS2/msg_MID360_launch.py"/>
 
   <!-- Optional: start FAST-LIO only when you explicitly need it as odometry/scan source. -->
   <include file="$(find-pkg-share fast_lio)/launch/mapping.launch.py" if="$(var start_fastlio)">
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
     <arg name="config_path" value="$(find-pkg-share fast_lio)/config"/>
-    <arg name="config_file" value="mid360.yaml"/>
+    <arg name="config_file" value="$(var fastlio_config_file)"/>
     <arg name="rviz" value="false"/>
+    <arg name="lid_topic" value="$(var fastlio_lidar_topic)"/>
+    <arg name="imu_topic" value="$(var fastlio_imu_topic)"/>
+    <arg name="lidar_type" value="$(var fastlio_lidar_type)"/>
   </include>
 
   <!-- ICP loads and publishes the prior map immediately, then waits for /initialpose. -->
@@ -20,6 +32,8 @@
     <param from="$(var icp_config)"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
     <param name="map_pcd_path" value="$(var map_pcd_path)"/>
+    <param name="visualization_map_pcd_path" value="$(var visualization_map_pcd_path)"/>
+    <param name="icp_map_pcd_path" value="$(var icp_map_pcd_path)"/>
     <param name="odom_topic" value="$(var fastlio_odom_topic)"/>
     <param name="scan_topic" value="$(var fastlio_scan_topic)"/>
   </node>

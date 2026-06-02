@@ -29,7 +29,25 @@ Visualization Manager:
       Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
-      Name: Prior Map
+      Name: Ground Visualization Map
+      Point Size: 2
+      Style: Points
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /icp_visualization_map
+      Use Fixed Frame: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Class: rviz_default_plugins/PointCloud2
+      Color: 80; 160; 255
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: false
+      Name: ICP Target Map
       Point Size: 2
       Style: Points
       Topic:
@@ -39,7 +57,7 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /icp_map
       Use Fixed Frame: true
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Class: rviz_default_plugins/PointCloud2
@@ -69,6 +87,29 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /icp_pose
+      Value: true
+    - Angle Tolerance: 0.10000000149011612
+      Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Keep: 100
+      Name: FAST-LIO Odometry
+      Position Tolerance: 0.10000000149011612
+      Shape:
+        Alpha: 1
+        Axes Length: 0.6
+        Axes Radius: 0.06
+        Color: 255; 255; 0
+        Head Length: 0.2
+        Head Radius: 0.08
+        Shaft Length: 0.6
+        Shaft Radius: 0.03
+        Value: Arrow
+      Topic:
+        Depth: 20
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /Odometry
       Value: true
   Enabled: true
   Global Options:
