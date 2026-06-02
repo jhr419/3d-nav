@@ -11,6 +11,17 @@ Fast-LIO2 mode:
 - `/Odometry` (`nav_msgs/msg/Odometry`) from Fast-LIO2
 - `/cloud_registered_body` (`sensor_msgs/msg/PointCloud2`) from Fast-LIO2
 
+Start Fast-LIO2 with the adapter:
+
+```bash
+ros2 launch mapping_adapter fast_adapter_mapping.launch \
+  mapping_dir:=/tmp/dddmr_fastlio_mid360_map
+```
+
+This launch keeps FAST-LIO on the known-good `fast_lio/config/mid360.yaml` and
+uses `mapping_adapter/config/fastlio_mid360_dddmr.yaml` only for converting
+FAST-LIO's body-frame outputs into the DDDMR map layout.
+
 GLIM mode:
 
 - GLIM TF: `map -> odom -> base_link`
@@ -46,8 +57,6 @@ The adapter writes:
 
 ```text
 <mapping_dir>/
-  map.pcd
-  ground.pcd
   poses.pcd
   edges.pcd
   pcd/

@@ -1,28 +1,28 @@
 <launch>
   <arg name="use_sim_time" default="false"/>
-  <arg name="mapping_dir" default="./fastlio_adapter_mid360_map"/>
+  <arg name="mapping_dir" default="$(find-pkg-share mapping_adapter)/../../../src/mapping_adapter/maps"/>
   <arg name="rviz_config" default="$(find-pkg-share mapping_adapter)/rviz/livox_mid360_fastlio_dddmr_mapping.rviz"/>
 
-  # 启动fastlio2建图节点
+  <!-- 启动 FAST-LIO2 建图节点，保持使用已验证稳定的 Mid360 配置。 -->
   <include file="$(find-pkg-share fast_lio)/launch/mapping.launch.py">
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
     <arg name="config_path" value="$(find-pkg-share fast_lio)/config"/>
     <arg name="config_file" value="mid360.yaml"/>
-    <arg name="rviz" value="false"/>
+    <arg name="rviz" value="true"/>
   </include>
 
-  # 启动适配器节点
-  <node pkg="mapping_adapter" exec="mapping_adapter_node" output="screen">
-    <param from="$(find-pkg-share mapping_adapter)/config/livox_mid360_dddmr_adapter.yaml"/>
+  <!-- 启动适配器节点，将 FAST-LIO2 的 body 点云/里程计转换成 DDDMR map 目录结构。 -->
+  <node pkg="mapping_adapter" exec="mapping_adapter_node" name="fastlio_dddmr_adapter" output="screen">
+    <param from="$(find-pkg-share mapping_adapter)/config/fastlio_mid360_dddmr.yaml"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
     <param name="mapping_dir" value="$(var mapping_dir)"/>
   </node>
 
   <node pkg="tf2_ros" exec="static_transform_publisher" name="baselink2footprint"
-        args="0.0 0 -0.24 0.0 0.0 0 base_link base_footprint"/>
+        args="--x 0.0 --y 0.0 --z -0.24 --roll 0.0 --pitch 0.0 --yaw 0.0 --frame-id base_link --child-frame-id base_footprint"/>
 
   <node pkg="tf2_ros" exec="static_transform_publisher" name="baselink2mid360"
-        args="0.3 0 0.38 -0.034101, -0.566395 0 base_link livox_frame"/>
+        args="--x 0.3 --y 0.0 --z 0.38 --roll -0.034101 --pitch 0.566395 --yaw 0.0 --frame-id base_link --child-frame-id livox_frame"/>
 
   <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" respawn="false"
           args="-d $(var rviz_config)"/>

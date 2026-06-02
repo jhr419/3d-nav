@@ -583,18 +583,15 @@ private:
       message = "No DDDMR keyframes collected yet.";
       return false;
     }
-    if (dirty_global_clouds_) {
-      rebuildGlobalClouds();
-    }
 
     try {
-      // 保存全局地图、地面、关键帧位姿，以及每个关键帧的局部点云。
+      // 只保存 DDDMR 位姿图和每个关键帧的局部点云；全局地图/地面点云由外部流程导出。
       std::filesystem::create_directories(mapping_dir_);
       const std::string pcd_dir = mapping_dir_ + "/pcd";
       std::filesystem::create_directories(pcd_dir);
+      std::filesystem::remove(mapping_dir_ + "/map.pcd");
+      std::filesystem::remove(mapping_dir_ + "/ground.pcd");
 
-      pcl::io::savePCDFileASCII(mapping_dir_ + "/map.pcd", *global_feature_);
-      pcl::io::savePCDFileASCII(mapping_dir_ + "/ground.pcd", *global_ground_);
       pcl::io::savePCDFileASCII(mapping_dir_ + "/poses.pcd", *keypose_cloud_);
 
       pcl::PointCloud<pcl::PointXYZ> edges;

@@ -1,0 +1,38 @@
+icp_localization_node:
+  ros__parameters:
+    # Existing map exported by the adapter. Override this when using another map.
+    map_pcd_path: "/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd"
+
+    odom_topic: "/Odometry"
+    scan_topic: "/cloud_registered_body"
+    initialpose_topic: "/initialpose"
+
+    map_frame: "map"
+    odom_frame: "camera_init"
+    base_frame: "base_link"
+    publish_tf: true
+    publish_map_cloud: true
+
+    # FAST-LIO /cloud_registered_body and /Odometry are already in FAST-LIO's
+    # IMU/body frame after preprocess.input_rotation_rpy_rad is applied.
+    base_to_body_xyz: [0.3, 0.0, 0.38]
+    base_to_body_rpy: [0.0, 0.0, 0.0]
+
+    # Set this true if you want localization to start from the pose below
+    # instead of waiting for RViz/Nav2 /initialpose.
+    use_initial_pose_param: false
+    initial_pose_xyz: [0.0, 0.0, 0.0]
+    initial_pose_rpy: [0.0, 0.0, 0.0]
+
+    min_range: 0.5
+    max_range: 60.0
+    scan_leaf_size: 0.25
+    map_leaf_size: 0.25
+    min_scan_points: 120
+
+    max_correspondence_distance: 1.5
+    transformation_epsilon: 0.01
+    euclidean_fitness_epsilon: 0.01
+    max_iterations: 40
+    fitness_score_threshold: 1.0
+    relocalization_interval_s: 0.2

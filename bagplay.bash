@@ -1,0 +1,1 @@
+ros2 bag play ~/dddmr_bags/Indoor_Office/cu_indoor_office/

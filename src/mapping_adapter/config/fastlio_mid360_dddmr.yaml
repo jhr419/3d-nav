@@ -1,0 +1,44 @@
+fastlio_dddmr_adapter:
+  ros__parameters:
+    # FAST-LIO2 publishes these absolute topics from laserMapping.cpp.
+    odom_topic: "/Odometry"
+    body_cloud_topic: "/cloud_registered_body"
+    map_cloud_topic: "/Laser_map"
+    pose_source: "odom"
+
+    # The numeric map frame comes from FAST-LIO's camera_init frame.  The adapter
+    # republishes it as map so DDDMR navigation can consume a conventional tree.
+    map_frame: "map"
+    base_frame: "base_link"
+    child_frame: "base_link"
+    publish_tf: true
+    publish_period_s: 1.0
+
+    # Directory consumed by dddmr_navigation / mcl_3dl:
+    # poses.pcd, edges.pcd, pcd/N_*.pcd. Export map.pcd/ground.pcd manually.
+    mapping_dir: "/home/jhr/jhr/fast_ws/src/mapping_adapter/maps"
+    save_on_shutdown: false
+
+    # FAST-LIO /cloud_registered_body and /Odometry are already in FAST-LIO's
+    # IMU/body frame after preprocess.input_rotation_rpy_rad is applied.
+    # Do not repeat the Livox mounting roll/pitch here.
+    base_to_body_xyz: [0.3, 0.0, 0.38]
+    base_to_body_rpy: [0.0, 0.0, 0.0]
+
+    keyframe_distance: 0.5
+    keyframe_angle: 0.5
+    keyframe_min_points: 100
+    keyframe_cloud_leaf_size: 0.15
+    global_map_leaf_size: 0.25
+
+    min_range: 0.5
+    max_range: 60.0
+
+    # Simple base_link-frame split for DDDMR localization maps.
+    # base_footprint is published at z=-0.24 in fast_adapter_mapping.launch;
+    # keep only points at or below that height as ground.
+    ground_z_min: -1.00
+    ground_z_max: -0.4
+    ground_abs_slope_max: 0.35
+    feature_min_z: -0.20
+    keep_ground_in_features: false

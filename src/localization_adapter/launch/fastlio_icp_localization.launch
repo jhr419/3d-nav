@@ -1,0 +1,35 @@
+<launch>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="map_pcd_path" default="/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd"/>
+  <arg name="icp_config" default="$(find-pkg-share localization_adapter)/config/fastlio_mid360_icp_localization.yaml"/>
+  <arg name="rviz_config" default="$(find-pkg-share localization_adapter)/rviz/icp_localization.rviz"/>
+  <arg name="start_fastlio" default="false"/>
+  <arg name="fastlio_odom_topic" default="/Odometry"/>
+  <arg name="fastlio_scan_topic" default="/cloud_registered_body"/>
+
+  <!-- Optional: start FAST-LIO only when you explicitly need it as odometry/scan source. -->
+  <include file="$(find-pkg-share fast_lio)/launch/mapping.launch.py" if="$(var start_fastlio)">
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="config_path" value="$(find-pkg-share fast_lio)/config"/>
+    <arg name="config_file" value="mid360.yaml"/>
+    <arg name="rviz" value="false"/>
+  </include>
+
+  <!-- ICP loads and publishes the prior map immediately, then waits for /initialpose. -->
+  <node pkg="localization_adapter" exec="icp_localization_node" name="icp_localization_node" output="screen">
+    <param from="$(var icp_config)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="map_pcd_path" value="$(var map_pcd_path)"/>
+    <param name="odom_topic" value="$(var fastlio_odom_topic)"/>
+    <param name="scan_topic" value="$(var fastlio_scan_topic)"/>
+  </node>
+
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="baselink2footprint"
+        args="--x 0.0 --y 0.0 --z -0.24 --roll 0.0 --pitch 0.0 --yaw 0.0 --frame-id base_link --child-frame-id base_footprint"/>
+
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="baselink2mid360"
+        args="--x 0.3 --y 0.0 --z 0.38 --roll -0.034101 --pitch 0.566395 --yaw 0.0 --frame-id base_link --child-frame-id livox_frame"/>
+
+  <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" respawn="false"
+        args="-d $(var rviz_config)"/>
+</launch>

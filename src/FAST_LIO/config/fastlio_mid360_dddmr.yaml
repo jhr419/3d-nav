@@ -21,6 +21,7 @@
       blind: 0.5
       timestamp_unit: 3
       scan_rate: 10
+      input_rotation_rpy_rad: [-0.034101, 0.566395, 0.0]
 
     mapping:
       acc_cov: 0.1
@@ -29,6 +30,15 @@
       b_gyr_cov: 0.0001
       fov_degree: 360.0
       det_range: 100.0
+      height_filter_en: true
+      height_filter_local_map_en: false
+      h_min: -10.0
+      h_max: 0.35
+      dynamic_filter_en: true
+      dynamic_filter_min_range: 0.5
+      dynamic_filter_max_range: 4.0
+      dynamic_filter_search_radius: 0.6
+      dynamic_filter_min_neighbors: 3
       extrinsic_est_en: true
       extrinsic_T: [-0.011, -0.02329, 0.04412]
       extrinsic_R: [1.0, 0.0, 0.0,
