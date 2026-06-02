@@ -131,16 +131,6 @@ inline void rotate_input(double x, double y, double z, geometry_msgs::msg::Vecto
     vec.z = input_rotation[6] * x + input_rotation[7] * y + input_rotation[8] * z;
 }
 
-// inline void rotate_input(double x, double y, double z,  geometry_msgs::msg::Vector3 &vec)
-// {
-//     cout << "调用自定义IMU旋转函数" << endl;
-//     double pitch_rad =0.485596;
-//     // 对 IMU 的三维向量使用与点云完全相同的旋转矩阵。
-//     // 线加速度和角速度都是向量量，必须同步旋转，不能只旋转点云。
-//     vec.x = 1 * x + 0 * y + 0 * z;
-//     vec.y = 0 * x + cos(pitch_rad) * y + (-sin(pitch_rad)) * z;
-//     vec.z = 0 * x + sin(pitch_rad) * y + cos(pitch_rad) * z;
-// }
 }  // namespace
 
 /*** Time Log Variables ***/
@@ -1363,7 +1353,7 @@ private:
             if (scan_pub_en)      publish_frame_world(pubLaserCloudFull_);
             if (scan_pub_en && scan_body_pub_en) publish_frame_body(pubLaserCloudFull_body_);
             if (effect_pub_en) publish_effect_world(pubLaserCloudEffect_);
-            // if (map_pub_en) publish_map(pubLaserCloudMap_);
+            if (map_pub_en) publish_map(pubLaserCloudMap_);
 
             /*** Debug variables ***/
             if (runtime_pos_log)

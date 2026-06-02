@@ -141,6 +141,7 @@ public:
     body_to_base_ = base_to_body_.inverse();
     initial_map_to_base_ = makeTransform(initial_pose_xyz, initial_pose_rpy);
 
+    // 如果icp_map_pcd_path_和visualization_map_pcd_path_没有单独设置，就使用map_pcd_path_。这样用户只需要提供一个地图文件即可满足ICP和可视化的需求。
     if (icp_map_pcd_path_.empty()) {
       icp_map_pcd_path_ = map_pcd_path_;
     }

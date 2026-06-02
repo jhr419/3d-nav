@@ -59,7 +59,7 @@
             path_en: true                  # 是否发布轨迹 Path
             effect_map_en: false           # 是否发布参与匹配的有效点云
             map_en: false                  # 定位模式不发布 FAST-LIO 地图
-            scan_publish_en:  false        # 定位模式不发布世界系配准点云，减少计算和内存占用
+            scan_publish_en:  true        # 定位模式不发布世界系配准点云，减少计算和内存占用
             dense_publish_en: true         # 是否发布稠密点云；false 会减少全局点云数量
             scan_bodyframe_pub_en: true    # 是否发布 IMU 机体系下的当前帧点云
 
