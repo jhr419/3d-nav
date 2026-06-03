@@ -39,10 +39,10 @@
             b_gyr_cov: 0.0001              # 陀螺仪零偏随机游走协方差
             fov_degree:    360.0           # 建图视场角，单位 deg
             det_range:     100.0           # 有效探测距离，单位 m
-            height_filter_en: false         # 是否开启输出地图高度过滤，只发布/保存 h_min 到 h_max 的地图点
-            height_filter_  l_map_en: false # 是否同时过滤定位用局部地图；开启可能减少约束并导致漂移
-            h_min: -10.0                   # 地图高度过滤下限，世界坐标系 z，单位 m
-            h_max: 0.35                    # 地图高度过滤上限，世界坐标系 z，单位 m
+            height_filter_en: true         # 是否开启输出地图高度过滤，只发布/保存当前 body 坐标系 z 在 h_min 到 h_max 的地图点
+            height_filter_local_map_en: false # 是否同时过滤定位用局部地图；开启可能减少约束并导致漂移
+            h_min: -2.0                   # 地图高度过滤下限，body 坐标系 z，单位 m
+            h_max: 0.7                    # 地图高度过滤上限，body 坐标系 z，单位 m
             # 减少动态点入图
             dynamic_filter_en: true        # 是否开启近场动态点入图抑制，减少跟随人员等临时物体写入地图
             dynamic_filter_min_range: 0.5  # 动态过滤起始距离，雷达坐标系欧氏距离，单位 m
@@ -60,7 +60,7 @@
             effect_map_en: false           # 是否发布参与匹配的有效点云
             map_en: true                   # 是否发布局部/全局地图点云
             scan_publish_en:  true         # 是否发布配准后的点云
-            dense_publish_en: true         # 是否发布稠密点云；false 会减少全局点云数量
+            dense_publish_en: false         # 是否发布稠密点云；false 会减少全局点云数量
             scan_bodyframe_pub_en: true    # 是否发布 IMU 机体系下的当前帧点云
 
         pcd_save:

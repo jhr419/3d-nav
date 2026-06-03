@@ -17,6 +17,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -106,6 +107,10 @@ public:
     odom_topic_ = declare_parameter<std::string>("odom_topic", "/Odometry");
     scan_topic_ = declare_parameter<std::string>("scan_topic", "/cloud_registered_body");
     initialpose_topic_ = declare_parameter<std::string>("initialpose_topic", "/initialpose");
+    reset_service_name_ = declare_parameter<std::string>("reset_service_name", "reset_localization");
+    fastlio_reset_service_ =
+      declare_parameter<std::string>("fastlio_reset_service", "/fastlio_reset");
+    fastlio_reset_timeout_s_ = declare_parameter<double>("fastlio_reset_timeout_s", 1.0);
     map_frame_ = declare_parameter<std::string>("map_frame", "map");
     odom_frame_ = declare_parameter<std::string>("odom_frame", "camera_init");
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
@@ -200,6 +205,10 @@ public:
       "icp_map", rclcpp::QoS(1).transient_local().reliable());
     visualization_map_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       "icp_visualization_map", rclcpp::QoS(1).transient_local().reliable());
+    reset_srv_ = create_service<std_srvs::srv::Trigger>(
+      reset_service_name_,
+      std::bind(&IcpLocalizationNode::resetCallback, this, std::placeholders::_1, std::placeholders::_2));
+    fastlio_reset_client_ = create_client<std_srvs::srv::Trigger>(fastlio_reset_service_);
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     if (publish_map_cloud_) {
@@ -211,6 +220,11 @@ public:
       get_logger(),
       "ICP localization waiting for odom=%s scan=%s initialpose=%s",
       odom_topic_.c_str(), scan_topic_.c_str(), initialpose_topic_.c_str());
+    RCLCPP_INFO(
+      get_logger(),
+      "Localization reset service ready: %s, FAST-LIO reset target: %s",
+      reset_service_name_.c_str(),
+      fastlio_reset_service_.c_str());
   }
 
 private:
@@ -292,6 +306,65 @@ private:
     map_to_odom_ = map_to_base * latest_odom_to_base_.inverse();
     have_initial_pose_ = true;
     have_pending_initial_pose_ = false;
+  }
+
+  void resetCallback(
+    const std_srvs::srv::Trigger::Request::ConstSharedPtr,
+    const std_srvs::srv::Trigger::Response::SharedPtr response)
+  {
+    resetLocalizationState();
+    const bool fastlio_reset_requested = requestFastlioReset();
+
+    response->success = fastlio_reset_requested;
+    response->message = fastlio_reset_requested ?
+      "Localization state was reset and FAST-LIO reset was requested. Select a new initial pose on /initialpose." :
+      "Localization state was reset, but FAST-LIO reset service was unavailable. Select a new initial pose on /initialpose after FAST-LIO is reset.";
+
+    if (fastlio_reset_requested) {
+      RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
+    } else {
+      RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+    }
+  }
+
+  void resetLocalizationState()
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    map_to_odom_ = Eigen::Affine3d::Identity();
+    pending_initial_map_to_base_ = Eigen::Affine3d::Identity();
+    have_initial_pose_ = false;
+    have_pending_initial_pose_ = false;
+    last_icp_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  }
+
+  bool requestFastlioReset()
+  {
+    if (!fastlio_reset_client_) {
+      return false;
+    }
+
+    const auto timeout = std::chrono::duration<double>(fastlio_reset_timeout_s_);
+    if (!fastlio_reset_client_->wait_for_service(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(timeout)))
+    {
+      return false;
+    }
+
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    fastlio_reset_client_->async_send_request(
+      request,
+      [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+        const auto response = future.get();
+        if (response && response->success) {
+          RCLCPP_INFO(get_logger(), "FAST-LIO reset completed: %s", response->message.c_str());
+        } else {
+          RCLCPP_WARN(
+            get_logger(),
+            "FAST-LIO reset failed: %s",
+            response ? response->message.c_str() : "no response");
+        }
+      });
+    return true;
   }
 
   void scanCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -476,6 +549,8 @@ private:
   std::string odom_topic_;
   std::string scan_topic_;
   std::string initialpose_topic_;
+  std::string reset_service_name_;
+  std::string fastlio_reset_service_;
   std::string map_frame_;
   std::string odom_frame_;
   std::string base_frame_;
@@ -497,6 +572,7 @@ private:
   int max_iterations_ = 40;
   double fitness_score_threshold_ = 1.0;
   double relocalization_interval_s_ = 0.2;
+  double fastlio_reset_timeout_s_ = 1.0;
 
   Eigen::Affine3d base_to_body_ = Eigen::Affine3d::Identity();
   Eigen::Affine3d body_to_base_ = Eigen::Affine3d::Identity();
@@ -519,6 +595,8 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_srv_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr fastlio_reset_client_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aligned_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr icp_map_pub_;

@@ -515,7 +515,14 @@ bool sync_packages(MeasureGroup &meas)
 int process_increments = 0;
 inline bool pass_map_height_filter(const PointType &point_world)
 {
-    return !map_height_filter_en || (point_world.z >= map_height_min && point_world.z <= map_height_max);
+    if (!map_height_filter_en)
+    {
+        return true;
+    }
+
+    V3D p_world(point_world.x, point_world.y, point_world.z);
+    V3D p_body = state_point.rot.conjugate() * (p_world - state_point.pos);
+    return p_body.z() >= map_height_min && p_body.z() <= map_height_max;
 }
 
 inline bool pass_local_map_height_filter(const PointType &point_world)
@@ -1087,7 +1094,7 @@ public:
         RCLCPP_INFO(this->get_logger(), "p_pre->lidar_type %d", p_pre->lidar_type);
         RCLCPP_INFO(this->get_logger(), "input RPY rotation [%.6f, %.6f, %.6f] rad",
                     input_rotation_rpy_rad[0], input_rotation_rpy_rad[1], input_rotation_rpy_rad[2]);
-        RCLCPP_INFO(this->get_logger(), "map height filter %s [%.3f, %.3f] m, local map filter %s",
+        RCLCPP_INFO(this->get_logger(), "map body-height filter %s [%.3f, %.3f] m, local map filter %s",
                     map_height_filter_en ? "enabled" : "disabled", map_height_min, map_height_max,
                     map_height_filter_local_map_en ? "enabled" : "disabled");
         RCLCPP_INFO(this->get_logger(), "dynamic map filter %s, range [%.3f, %.3f] m, radius %.3f m, min neighbors %d",
@@ -1180,6 +1187,7 @@ public:
         }
 
         map_save_srv_ = this->create_service<std_srvs::srv::Trigger>("map_save", std::bind(&LaserMappingNode::map_save_callback, this, std::placeholders::_1, std::placeholders::_2));
+        reset_srv_ = this->create_service<std_srvs::srv::Trigger>("fastlio_reset", std::bind(&LaserMappingNode::reset_callback, this, std::placeholders::_1, std::placeholders::_2));
 
         RCLCPP_INFO(this->get_logger(), "Node init finished.");
 
@@ -1507,6 +1515,7 @@ private:
 
     void map_save_callback(std_srvs::srv::Trigger::Request::ConstSharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
     {
+        (void)req;
         RCLCPP_INFO(this->get_logger(), "Saving map to %s...", map_file_path.c_str());
         if (pcd_save_en)
         {
@@ -1519,6 +1528,82 @@ private:
             res->success = false;
             res->message = "Map save disabled.";
         }
+    }
+
+    void reset_callback(std_srvs::srv::Trigger::Request::ConstSharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
+    {
+        (void)req;
+        reset_fastlio_state();
+        res->success = true;
+        res->message = "FAST-LIO state reset.";
+        RCLCPP_WARN(this->get_logger(), "FAST-LIO state reset. Waiting for fresh lidar/imu initialization.");
+    }
+
+    void reset_fastlio_state()
+    {
+        std::lock_guard<std::mutex> lock(mtx_buffer);
+
+        time_buffer.clear();
+        lidar_buffer.clear();
+        imu_buffer.clear();
+        Measures = MeasureGroup();
+
+        p_imu->Reset();
+        state_point = state_ikfom();
+        state_point.offset_T_L_I = Lidar_T_wrt_IMU;
+        state_point.offset_R_L_I = Lidar_R_wrt_IMU;
+        kf.change_x(state_point);
+        auto reset_cov = kf.get_P();
+        reset_cov.setIdentity();
+        kf.change_P(reset_cov);
+
+        PointVector empty_map;
+        ikdtree.Build(empty_map);
+        Localmap_Initialized = false;
+        LocalMap_Points = BoxPointType();
+        cub_needrm.clear();
+        Nearest_Points.clear();
+        pointSearchInd_surf.clear();
+        path.poses.clear();
+        path.header.stamp = this->get_clock()->now();
+
+        featsFromMap->clear();
+        feats_undistort->clear();
+        feats_down_body->clear();
+        feats_down_world->clear();
+        laserCloudOri->clear();
+        corr_normvect->clear();
+        if (_featsArray) {
+            _featsArray->clear();
+        }
+
+        last_timestamp_lidar = 0.0;
+        last_timestamp_imu = -1.0;
+        lidar_end_time = 0.0;
+        first_lidar_time = 0.0;
+        total_distance = 0.0;
+        time_log_counter = 0;
+        scan_count = 0;
+        publish_count = 0;
+        iterCount = 0;
+        feats_down_size = 0;
+        laserCloudValidNum = 0;
+        kdtree_size_st = 0;
+        kdtree_size_end = 0;
+        add_point_size = 0;
+        kdtree_delete_counter = 0;
+        flg_first_scan = true;
+        flg_EKF_inited = false;
+        lidar_pushed = false;
+        is_first_lidar = true;
+        position_last = Zero3d;
+        euler_cur = Zero3d;
+        pos_lid = Zero3d;
+        odomAftMapped = nav_msgs::msg::Odometry();
+        msg_body_pose = geometry_msgs::msg::PoseStamped();
+
+        memset(point_selected_surf, true, sizeof(point_selected_surf));
+        memset(res_last, -1000.0f, sizeof(res_last));
     }
 
 private:
@@ -1536,6 +1621,7 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::TimerBase::SharedPtr map_pub_timer_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr map_save_srv_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_srv_;
     std::thread rosbag_thread_;
 
     bool effect_pub_en = false, map_pub_en = false;
