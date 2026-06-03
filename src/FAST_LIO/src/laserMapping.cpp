@@ -40,6 +40,10 @@
 #include <stdexcept>
 #include <csignal>
 #include <chrono>
+#include <cerrno>
+#include <cstring>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <Python.h>
 #include <so3_math.h>
@@ -626,6 +630,139 @@ void map_incremental()
 
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI());
 PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
+
+bool is_absolute_path(const string &path)
+{
+    return !path.empty() && path.front() == '/';
+}
+
+string workspace_root_directory()
+{
+    return string(ROOT_DIR) + "../../";
+}
+
+string resolved_map_file_path()
+{
+    if (map_file_path.empty() || is_absolute_path(map_file_path))
+    {
+        return map_file_path;
+    }
+
+    return workspace_root_directory() + map_file_path;
+}
+
+string map_save_directory()
+{
+    string resolved_path = resolved_map_file_path();
+    if (resolved_path.empty())
+    {
+        return string(ROOT_DIR) + "PCD/";
+    }
+
+    const size_t slash_pos = resolved_path.find_last_of("/\\");
+    if (slash_pos == string::npos)
+    {
+        return "";
+    }
+
+    return resolved_path.substr(0, slash_pos + 1);
+}
+
+string map_save_path(const string &file_name)
+{
+    return map_save_directory() + file_name;
+}
+
+bool ensure_directory_exists(const string &directory, string &error_message)
+{
+    if (directory.empty())
+    {
+        return true;
+    }
+
+    string current;
+    size_t pos = 0;
+    if (directory.front() == '/')
+    {
+        current = "/";
+        pos = 1;
+    }
+
+    while (pos < directory.size())
+    {
+        size_t next_pos = directory.find('/', pos);
+        string part = directory.substr(pos, next_pos - pos);
+        if (!part.empty())
+        {
+            if (!current.empty() && current.back() != '/')
+            {
+                current += "/";
+            }
+            current += part;
+
+            struct stat st;
+            if (stat(current.c_str(), &st) != 0)
+            {
+                if (mkdir(current.c_str(), 0755) != 0 && errno != EEXIST)
+                {
+                    error_message = "Failed to create directory " + current + ": " + strerror(errno);
+                    return false;
+                }
+            }
+            else if (!S_ISDIR(st.st_mode))
+            {
+                error_message = current + " exists but is not a directory";
+                return false;
+            }
+        }
+
+        if (next_pos == string::npos)
+        {
+            break;
+        }
+        pos = next_pos + 1;
+    }
+
+    return true;
+}
+
+PointCloudXYZI::Ptr export_ikdtree_map()
+{
+    PointVector map_points;
+    map_points.reserve(ikdtree.size());
+    ikdtree.flatten(ikdtree.Root_Node, map_points, NOT_RECORD);
+
+    PointCloudXYZI::Ptr map_cloud(new PointCloudXYZI());
+    map_cloud->reserve(map_points.size());
+    for (const auto &point : map_points)
+    {
+        map_cloud->push_back(point);
+    }
+    map_cloud->width = map_cloud->points.size();
+    map_cloud->height = 1;
+    map_cloud->is_dense = false;
+
+    return map_cloud;
+}
+
+PointCloudXYZI::Ptr height_filter_map(const PointCloudXYZI::Ptr &full_map)
+{
+    PointCloudXYZI::Ptr filtered_map(new PointCloudXYZI());
+    filtered_map->reserve(full_map->size());
+    for (const auto &point : full_map->points)
+    {
+        if (pass_map_height_filter(point))
+        {
+            filtered_map->push_back(point);
+        }
+    }
+    filtered_map->width = filtered_map->points.size();
+    filtered_map->height = 1;
+    filtered_map->is_dense = false;
+
+    return filtered_map;
+}
+
 void publish_frame_world(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFull)
 {
     if(scan_pub_en)
@@ -759,10 +896,50 @@ void publish_map(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub
     // pubLaserCloudMap->publish(laserCloudMap);
 }
 
-void save_to_pcd()
+bool save_to_pcd(string &message)
 {
-    pcl::PCDWriter pcd_writer;
-    pcd_writer.writeBinary(map_file_path, *pcl_wait_pub);
+    try
+    {
+        string directory = map_save_directory();
+        if (!ensure_directory_exists(directory, message))
+        {
+            return false;
+        }
+
+        pcl::PCDWriter pcd_writer;
+        PointCloudXYZI::Ptr full_map = export_ikdtree_map();
+
+        if (map_height_filter_en)
+        {
+            const string full_map_path = map_save_path("full_map.pcd");
+            const string height_filter_map_path = map_save_path("height_filter_map.pcd");
+            PointCloudXYZI::Ptr filtered_map = height_filter_map(full_map);
+
+            pcd_writer.writeBinary(full_map_path, *full_map);
+            pcd_writer.writeBinary(height_filter_map_path, *filtered_map);
+            message = "Maps saved: " + full_map_path + ", " + height_filter_map_path;
+            RCLCPP_INFO(rclcpp::get_logger("laser_mapping"),
+                        "Saved full map (%zu points) to %s and height-filtered map (%zu points) to %s",
+                        full_map->size(), full_map_path.c_str(),
+                        filtered_map->size(), height_filter_map_path.c_str());
+        }
+        else
+        {
+            const string output_path = resolved_map_file_path();
+            pcd_writer.writeBinary(output_path, *full_map);
+            message = "Map saved: " + output_path;
+            RCLCPP_INFO(rclcpp::get_logger("laser_mapping"),
+                        "Saved map (%zu points) to %s", full_map->size(), output_path.c_str());
+        }
+
+        return true;
+    }
+    catch (const std::exception &e)
+    {
+        message = string("Map save failed: ") + e.what();
+        RCLCPP_ERROR(rclcpp::get_logger("laser_mapping"), "%s", message.c_str());
+        return false;
+    }
 }
 
 template<typename T>
@@ -1516,12 +1693,10 @@ private:
     void map_save_callback(std_srvs::srv::Trigger::Request::ConstSharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
     {
         (void)req;
-        RCLCPP_INFO(this->get_logger(), "Saving map to %s...", map_file_path.c_str());
+        RCLCPP_INFO(this->get_logger(), "Saving map to %s...", resolved_map_file_path().c_str());
         if (pcd_save_en)
         {
-            save_to_pcd();
-            res->success = true;
-            res->message = "Map saved.";
+            res->success = save_to_pcd(res->message);
         }
         else
         {

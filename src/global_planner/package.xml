@@ -3,7 +3,7 @@
 <package format="3">
   <name>global_planner</name>
   <version>0.1.0</version>
-  <description>3D OctoMap global planner using traversability extraction and A* search.</description>
+  <description>2.5D and 3D A* global planner using an OctoMap occupancy map.</description>
 
   <maintainer email="frasherfrasher01@gmail.com">Posheng</maintainer>
   <license>BSD</license>
@@ -14,9 +14,10 @@
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>visualization_msgs</depend>
   <depend>octomap</depend>
-  <depend>octomap_msgs</depend>
-  <depend>libpcl-all</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

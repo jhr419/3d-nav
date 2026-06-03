@@ -1,8 +1,8 @@
 <launch>
   <arg name="use_sim_time" default="false"/>
-  <arg name="map_pcd_path" default="/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd"/>
-  <arg name="visualization_map_pcd_path" default="/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/ground.pcd"/>
-  <arg name="icp_map_pcd_path" default="/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd"/>
+  <arg name="map_pcd_path" default="/home/jhr/jhr/fast_ws/maps/full_map.pcd"/>
+  <arg name="visualization_map_pcd_path" default="/home/jhr/jhr/fast_ws/maps/height_filter_map.pcd"/>
+  <arg name="icp_map_pcd_path" default="/home/jhr/jhr/fast_ws/maps/full_map.pcd"/>
   <arg name="icp_config" default="$(find-pkg-share localization_adapter)/config/fastlio_mid360_icp_localization.yaml"/>
   <arg name="rviz_config" default="$(find-pkg-share localization_adapter)/rviz/icp_localization.rviz"/>
   <arg name="start_rviz" default="true"/>

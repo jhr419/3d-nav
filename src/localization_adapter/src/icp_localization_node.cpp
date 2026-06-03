@@ -232,7 +232,14 @@ private:
   {
     std::lock_guard<std::mutex> lock(mutex_);
     latest_odom_stamp_ = msg->header.stamp;
-    odom_frame_ = msg->header.frame_id.empty() ? odom_frame_ : msg->header.frame_id;
+    source_odom_frame_ = msg->header.frame_id;
+    if (!source_odom_frame_.empty() && source_odom_frame_ != odom_frame_) {
+      RCLCPP_WARN_ONCE(
+        get_logger(),
+        "Odometry header frame is '%s', but TF odom_frame parameter is '%s'. Publishing TF with parameter frame name.",
+        source_odom_frame_.c_str(),
+        odom_frame_.c_str());
+    }
     latest_odom_to_body_ = poseToAffine(msg->pose.pose);
     latest_odom_to_base_ = latest_odom_to_body_ * body_to_base_;
     if (!have_odom_) {
@@ -490,9 +497,9 @@ private:
     if (publish_base_tf_) {
       geometry_msgs::msg::TransformStamped transform;
       transform.header.stamp = stamp;
-      transform.header.frame_id = map_frame_;
+      transform.header.frame_id = odom_frame_;
       transform.child_frame_id = base_frame_;
-      const auto pose = affineToPose(map_to_base);
+      const auto pose = affineToPose(latest_odom_to_base_);
       transform.transform.translation.x = pose.position.x;
       transform.transform.translation.y = pose.position.y;
       transform.transform.translation.z = pose.position.z;
@@ -551,6 +558,7 @@ private:
   std::string initialpose_topic_;
   std::string reset_service_name_;
   std::string fastlio_reset_service_;
+  std::string source_odom_frame_;
   std::string map_frame_;
   std::string odom_frame_;
   std::string base_frame_;

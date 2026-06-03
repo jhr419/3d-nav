@@ -7,7 +7,7 @@
         filter_size_map: 0.5              # 地图点云体素滤波尺寸，单位 m
         cube_side_length: 1000.0          # 局部地图立方体边长，单位 m
         runtime_pos_log_enable: false     # 是否记录运行时位姿日志
-        map_file_path: "/home/jhr/fast_ws/src/mapping_adapter/maps/map.pcd"       # 保存 PCD 地图文件路径
+        map_file_path: "maps/map.pcd"      # 保存 PCD 地图相对路径；相对工作区根目录，maps 和 src 同级；开启高度过滤时同目录输出 full_map.pcd 和 height_filter_map.pcd
 
         common:
             lid_topic:  "/livox/lidar"    # 雷达点云话题
@@ -39,7 +39,7 @@
             b_gyr_cov: 0.0001              # 陀螺仪零偏随机游走协方差
             fov_degree:    360.0           # 建图视场角，单位 deg
             det_range:     100.0           # 有效探测距离，单位 m
-            height_filter_en: true         # 是否开启输出地图高度过滤，只发布/保存当前 body 坐标系 z 在 h_min 到 h_max 的地图点
+            height_filter_en: true         # 是否开启输出地图高度过滤；发布过滤地图，保存时额外输出 full_map.pcd 和 height_filter_map.pcd
             height_filter_local_map_en: false # 是否同时过滤定位用局部地图；开启可能减少约束并导致漂移
             h_min: -2.0                   # 地图高度过滤下限，body 坐标系 z，单位 m
             h_max: 0.7                    # 地图高度过滤上限，body 坐标系 z，单位 m

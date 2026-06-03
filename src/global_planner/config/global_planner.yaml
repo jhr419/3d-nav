@@ -1,37 +1,15 @@
 global_planner_node:
   ros__parameters:
-    frame_id: map
-    # true: manually choose both start and goal.
-    # false: use icp_localization_node's pose as start, manually choose goal.
-    debug_mode: false
-    replan_on_pose_update: true
+    octomap_file: "maps/result_cleaned.bt"
+    map_frame: "map"
+    base_frame: "base_link"
+    planning_mode: "3d"
+    unknown_as_occupied: false
+    robot_height_min: 0.1
+    robot_height_max: 1.0
+    start_z_override_enabled: false
+    start_z_override: 0.0
+    max_iterations: 500000
 
-    # map_source:
-    #   file  - load a static .bt/.ot/.pcd map from map_file_path.
-    #   topic - subscribe to octomap_topic.
-    map_source: file
-    map_file_path: "/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/maps/ground.pcd"
-    pcd_octomap_resolution: 0.20
-    pcd_voxel_leaf_size: 0.0
-    pcd_min_z: -1000.0
-    pcd_max_z: 1000.0
-    octomap_topic: /octomap_full
-
-    start_topic: /global_planner/start
-    localization_pose_topic: /icp_pose
-    goal_topic: /goal_pose
-    path_topic: /global_path
-    occupied_map_cloud_topic: /global_planner/occupied_map
     publish_occupied_map_cloud: true
-
-    robot_radius: 0.20
-    max_iterations: 250000
-    snap_search_radius_cells: 8
-    require_ground_support: true
-    strict_direct_ground_support: true
-    ground_support_xy_radius_cells: 1
-    ground_support_depth_cells: 2
-    enable_preblocked_costmap: true
-    preblocked_costmap_radius_cells: 3
-    preblocked_costmap_weight: 1.5
-    lowest_traversable_only: false
+    occupied_map_cloud_topic: "/global_planner/occupied_map"
