@@ -1,0 +1,34 @@
+jie_3d_global_planner_node:
+  ros__parameters:
+    map_file: "/home/jhr/jhr/fast_ws/maps/result_cleaned.bt"
+    map_frame: "map"
+    map_resolution: 0.2
+    inflation_radius: 0.3
+    unknown_as_occupied: true
+
+    octomap_topic: "/octomap"
+    octomap_cloud_topic: "/octomap_points"
+    occupied_marker_topic: "/octomap_occupied_markers"
+    accept_octomap_topic: false
+    publish_octomap: true
+    publish_occupied_cloud: true
+    publish_occupied_marker: true
+
+    goal_pose_topic: "/goal_pose_3d"
+    goal_point_topic: "/goal_point_3d"
+    initial_pose_topic: "/initial_pose_3d"
+    global_path_topic: "/global_path"
+    global_path_3d_topic: "/global_path_3d"
+    global_path_marker_topic: "/global_path_marker"
+
+    start_source: "tf"
+    base_frame: "base_link"
+    start_z_override_enabled: false
+    start_z_override: 0.0
+    manual_start: [0.0, 0.0, 0.5]
+
+    max_iterations: 500000
+    enable_path_smoothing: true
+    smoothing_method: "line_of_sight"
+    path_resample_resolution: 0.2
+    path_marker_width: 0.08

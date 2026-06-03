@@ -1,0 +1,55 @@
+relocalization_bin_file: /home/firefly/ros2_ws/src/odin_ros_driver/map/B5/map_20260424_110803.bin   # 重定位使用的二进制地图文件（通常由激光建图生成）
+relocalization_pcd_file: /home/jhr/jhr/fast_ws/maps/csf_map/map.pcd        # 重定位使用的点云地图文件（PCD格式）
+map_package_dir: /home/jhr/jhr/fast_ws/maps/csf_map/                                                               # 地图资源所在目录
+show_rviz: true                                                                                       # 是否自动启动RViz可视化界面
+show_map_gui: true                                                                                    # 是否显示地图管理GUI界面
+publish_d1_odom: false                                                                                 # 是否发布D1机器人里程计话题
+use_static_odom_to_base: true                                                                          # 是否使用静态TF连接odom与base_link
+
+d1_controller:
+  ros__parameters:
+
+    # ==================== 路径跟踪几何参数 ====================
+
+    robot_center_offset_frame: base_link     # 机器人参考坐标系名称
+    robot_center_offset_x: -0.3                   # 控制参考点相对于base_link的X方向偏移（m）
+    robot_center_offset_y: 0.0                     # 控制参考点相对于base_link的Y方向偏移（m）
+    robot_center_offset_z: -0.38                     # 控制参考点相对于base_link的Z方向偏移（m）
+
+    tracking_point_reached_xy_tolerance: 0.40      # 判断路径点已到达的平面距离容差（m）
+    tracking_point_marker_scale: 0.28              # RViz中跟踪点Marker显示尺寸（m）
+
+    # ==================== OpenCV俯视调试界面 ====================
+
+    enable_tracking_debug_view: true               # 是否启用路径跟踪调试窗口
+    tracking_debug_view_size_px: 640               # 调试窗口大小（像素）
+    tracking_debug_view_pixels_per_meter: 80.0     # 调试窗口比例尺（每米对应像素数）
+    tracking_debug_view_frequency: 10.0            # 调试窗口刷新频率（Hz）
+
+    # ==================== 速度控制增益 ====================
+
+    linear_gain: 1.0                               # 前进速度控制增益（X方向）
+    lateral_gain: 0.8                              # 横向速度控制增益（Y方向，全向底盘适用）
+    heading_gain: 0.8                              # 航向角误差控制增益
+
+    cross_track_angular_gain: 0.5                  # 横向偏差转化为角速度的增益
+    final_yaw_gain: 0.3                            # 到达目标点后最终姿态对准增益
+
+    # ==================== 运动模式与速度限制 ====================
+
+    enable_lateral_motion: true                    # 是否允许横向运动（全向底盘开启，差速底盘关闭）
+
+    max_linear_speed: 0.7                          # 最大前向速度（m/s）
+    max_lateral_speed: 0.5                         # 最大横向速度（m/s）
+    max_angular_speed: 0.9                         # 最大角速度（rad/s）
+
+    # ==================== 死区与目标容差 ====================
+
+    align_final_yaw: true                          # 到达目标位置后是否进行最终航向角对准
+
+    linear_deadband: 0.05                          # 前向速度死区（m/s）
+    lateral_deadband: 0.05                         # 横向速度死区（m/s）
+    angular_deadband: 0.05                         # 角速度死区（rad/s）
+
+    goal_position_tolerance: 0.1                   # 目标位置到达容差（m）
+    goal_yaw_tolerance: 0.2                        # 目标航向到达容差（rad，约11.5°）
