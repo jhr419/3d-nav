@@ -1,0 +1,54 @@
+<launch>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="map_pcd_path" default="/home/jhr/3dnav_ws/maps/csf_map/map.pcd"/>
+  <arg name="visualization_map_pcd_path" default="/home/jhr/3dnav_ws/maps/csf_map/map_ground.pcd"/>
+  <arg name="icp_map_pcd_path" default="/home/jhr/3dnav_ws/maps/csf_map/map.pcd"/>
+  <arg name="icp_config" default="$(find-pkg-share localization_adapter)/config/fastlio_mid360_icp_localization.yaml"/>
+  <arg name="rviz_config" default="$(find-pkg-share localization_adapter)/rviz/icp_localization.rviz"/>
+  <arg name="start_rviz" default="true"/>
+  <arg name="start_livox_driver" default="true"/>
+  <!-- fastlio 参数 -->
+  <arg name="start_fastlio" default="true"/>
+  <arg name="start_fastlio_rviz" default="false"/>
+  <arg name="fastlio_config_file" default="mid360_localization.yaml"/>
+  <!-- <arg name="fastlio_config_file" default="mid360.yaml"/> -->
+  <arg name="fastlio_lidar_topic" default="/livox/lidar"/>
+  <arg name="fastlio_imu_topic" default="/livox/imu"/>
+  <arg name="fastlio_lidar_type" default="1"/>
+  <arg name="fastlio_odom_topic" default="/Odometry"/>
+  <arg name="fastlio_scan_topic" default="/cloud_registered_body"/>
+
+  <include file="$(find-pkg-share livox_ros_driver2)/launch_ROS2/msg_MID360_launch.py" if="$(var start_livox_driver)"/>
+
+  <!-- 启动fast-lio，提供里程计和点云数据给icp_localization_node。icp_localization_node会等待/initialpose话题来进行定位。 -->
+  <!-- TODO:目前是需要同时构建完整地图 -->
+  <include file="$(find-pkg-share fast_lio)/launch/mapping.launch.py" if="$(var start_fastlio)">
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="config_path" value="$(find-pkg-share fast_lio)/config"/>
+    <arg name="config_file" value="$(var fastlio_config_file)"/>
+    <arg name="rviz" value="$(var start_fastlio_rviz)"/>
+    <arg name="lid_topic" value="$(var fastlio_lidar_topic)"/>
+    <arg name="imu_topic" value="$(var fastlio_imu_topic)"/>
+    <arg name="lidar_type" value="$(var fastlio_lidar_type)"/>
+  </include>
+
+  <!-- 启动icp_localization_node，加载地图并发布tf，等待/initialpose话题来进行定位。 -->
+  <node pkg="localization_adapter" exec="icp_localization_node" name="icp_localization_node" output="screen">
+    <param from="$(var icp_config)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="map_pcd_path" value="$(var map_pcd_path)"/>  <!-- 如果用户没有单独设置icp_map_pcd_path和visualization_map_pcd_path，就使用map_pcd_path。这样用户只需要提供一个地图文件即可满足ICP和可视化的需求。 -->
+    <param name="visualization_map_pcd_path" value="$(var visualization_map_pcd_path)"/>  <!-- 可视化地图路径(本质是地面点云地图)，可以和ICP地图路径不同，方便用户使用不同分辨率的地图进行定位和可视化。 -->
+    <param name="icp_map_pcd_path" value="$(var icp_map_pcd_path)"/>  <!-- ICP地图路径，可以和可视化地图路径不同，方便用户使用不同分辨率的地图进行定位和可视化。 -->
+    <param name="odom_topic" value="$(var fastlio_odom_topic)"/>
+    <param name="scan_topic" value="$(var fastlio_scan_topic)"/>
+  </node>
+
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="baselink2footprint"
+        args="--x 0.0 --y 0.0 --z -0.24 --roll 0.0 --pitch 0.0 --yaw 0.0 --frame-id base_link --child-frame-id base_footprint"/>
+
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="baselink2mid360"
+        args="--x 0.3 --y 0.0 --z 0.38 --roll -0.034101 --pitch 0.566395 --yaw 0.0 --frame-id base_link --child-frame-id livox_frame"/>
+
+  <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen" respawn="false" if="$(var start_rviz)"
+        args="-d $(var rviz_config)"/>
+</launch>
