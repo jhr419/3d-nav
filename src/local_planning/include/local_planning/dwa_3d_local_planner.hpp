@@ -36,6 +36,7 @@ struct Trajectory3D
   Velocity3D cmd;
   double score{0.0};
   double min_obstacle_distance{std::numeric_limits<double>::infinity()};
+  double min_dynamic_obstacle_distance{std::numeric_limits<double>::infinity()};
   bool collision_free{false};
 };
 
@@ -46,6 +47,8 @@ struct DwaDebugInfo
   int unknown_blocked_count{0};
   int ground_blocked_count{0};
   double best_score{-std::numeric_limits<double>::infinity()};
+  double dynamic_obstacle_speed_scale{1.0};
+  double nearest_dynamic_obstacle_distance{std::numeric_limits<double>::infinity()};
   std::string recovery_state{"idle"};
 };
 
@@ -55,7 +58,7 @@ public:
   struct Config
   {
     std::string robot_model{"ground_omni"};
-    std::string obstacle_source{"octomap"};
+    std::string obstacle_source{"both"};
     bool unknown_as_occupied{true};
     double robot_radius{0.35};
     double robot_height{0.6};
@@ -85,10 +88,19 @@ public:
     double weight_heading{0.5};
     double weight_velocity{0.2};
     double weight_smoothness{0.2};
+    double weight_dynamic_obstacle_distance{2.0};
     double obstacle_check_resolution{0.1};
     double min_obstacle_distance{0.25};
     double obstacle_score_distance{2.0};
     bool stop_on_no_valid_trajectory{true};
+
+    bool enable_dynamic_speed_scaling{true};
+    bool dynamic_obstacle_use_2d_footprint{true};
+    double dynamic_obstacle_radius{0.35};
+    double dynamic_obstacle_safety_margin{0.15};
+    double dynamic_obstacle_stop_distance{0.35};
+    double dynamic_obstacle_slow_distance{0.8};
+    double min_speed_scale{0.2};
 
     bool use_path_z_for_collision{true};
     bool terrain_following_enabled{true};
@@ -153,6 +165,8 @@ public:
 
   bool isTrajectoryCollisionFree(const std::vector<Pose3D> & traj) const;
   double getMinObstacleDistance(const std::vector<Pose3D> & traj) const;
+  double getMinDynamicObstacleDistance(const std::vector<Pose3D> & traj) const;
+  double computeDynamicObstacleSpeedScale(const Pose3D & current_pose) const;
   bool isPoseCollisionFreeTerrainAdaptive(const Pose3D & pose) const;
   bool isUnknownAllowed(const Eigen::Vector3d & point) const;
   double getReferenceZFromPath(double x, double y) const;
@@ -200,8 +214,10 @@ private:
   bool evaluateCollisionAndDistance(
     const std::vector<Pose3D> & traj,
     double & min_obstacle_distance,
-    DwaDebugInfo * debug_info = nullptr) const;
+    DwaDebugInfo * debug_info = nullptr,
+    double * min_dynamic_obstacle_distance = nullptr) const;
   double minPointCloudDistance(const Pose3D & pose) const;
+  double minForwardPointCloudDistance(const Pose3D & pose) const;
   double minOctomapDistance(const Pose3D & pose) const;
   bool octomapFootprintCollision(const Pose3D & pose) const;
   bool isPoseCollisionFreeTerrainAdaptive(
@@ -210,6 +226,7 @@ private:
   bool useOctomap() const;
   bool usePointCloud() const;
   double collisionDistanceThreshold() const;
+  double dynamicCollisionDistanceThreshold() const;
   double maxPlanarSpeed() const;
   double collisionBodyMinZ(const Pose3D & pose) const;
   double collisionBodyMaxZ(const Pose3D & pose) const;

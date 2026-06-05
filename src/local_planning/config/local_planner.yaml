@@ -1,39 +1,100 @@
 local_planner_node:
   ros__parameters:
+    # ========== Frame / TF ==========
+    # 全局地图坐标系；全局路径、OctoMap 和最终规划碰撞检查都以此为主。
     map_frame: "map"
+    # 机器人主体坐标系；用于查询当前位姿和将点云裁剪到机器人局部范围。
     base_frame: "base_link"
+    # 依次尝试的 base frame 候选。某些系统可能使用 base_footprint。
     base_frame_candidates: "base_link,base_footprint"
 
+    # ========== Input / Output Topics ==========
+    # 三维全局路径输入，局部规划器跟随该路径生成 /cmd_vel。
     global_path_topic: "/planned_path"
+    # 额外路径别名；如果全局规划器发布到另一个 topic，也可被接收。
     additional_global_path_topic: "/global_path_3d"
+    # 输出底盘速度。
     cmd_vel_topic: "/cmd_vel"
+    # 可选速度来源：odom 模式使用该话题读取当前速度。
     odom_topic: "/odom"
+    # Unitree 当前速度来源；velocity_source=sport_mode 时使用。
     sport_mode_state_topic: "/sportmodestate"
-    velocity_source: "sport_mode"  # auto / sport_mode / odom / last_cmd / zero
+    # 当前速度估计来源：auto / sport_mode / odom / last_cmd / zero。
+    velocity_source: "sport_mode"
+
+    # ========== Dynamic Point Cloud Source ==========
+    # 主实时避障点云。FAST-LIO 推荐使用 /cloud_registered_body。
+    pointcloud_topic: "/cloud_registered_body"
+    # 额外监听的实时点云 topic，逗号分隔；有数据的任一路都会更新动态障碍层。
+    additional_pointcloud_topics: "/livox/lidar,/mid360"
+    # 点云坐标处理模式：
+    # auto：优先根据 frame 判断并转换到 map；
+    # map：强制按 map 系处理；
+    # base_link：强制按 base 系处理。
+    pointcloud_frame_mode: "auto"
+    # 点云消息 frame 到 TF frame 的重映射。
+    # FAST-LIO 的 /cloud_registered_body 常写 frame_id=body；本项目里 body 实际等价 livox_frame。
+    pointcloud_frame_remaps: "body:livox_frame"
+    # 这些 frame 可视为 map/world 系，不再强制查 TF。通常只在确认坐标系数值一致时使用。
+    pointcloud_map_frame_aliases: "camera_init"
+    # 这些 frame 可视为 base 系。当前 body 等价 livox_frame，不应写在这里。
+    pointcloud_base_frame_aliases: ""
+    # 点云超过该时间没有更新就认为不新鲜。
+    pointcloud_timeout: 1.0
+    # obstacle_source=both 时，点云不新鲜仍允许只用 OctoMap 继续规划。
+    allow_planning_without_fresh_cloud: true
+    # 兼容旧的局部障碍点云 topic。
     local_obstacle_cloud_topic: "/local_obstacle_cloud"
+    # 静态 OctoMap topic。
     octomap_topic: "/octomap"
 
+    # ========== Visualization / Debug Topics ==========
+    # 最优局部轨迹 Marker。
     local_trajectory_marker_topic: "/local_trajectory_marker"
+    # 所有 DWA 候选轨迹 MarkerArray。
     candidate_trajectories_topic: "/dwa_candidate_trajectories"
+    # 当前局部目标点 Marker。
     local_goal_marker_topic: "/local_goal_marker"
+    # recovery 动作轨迹 Marker。
     recovery_trajectory_marker_topic: "/recovery_trajectory_marker"
+    # unknown 放行走廊 Marker。
     path_corridor_marker_topic: "/path_corridor_marker"
+    # DWA 调试文本，包含 valid/collision 数量、动态点云状态、速度缩放等。
     dwa_debug_text_topic: "/dwa_debug_text"
+    # 过滤后、DWA 实际使用的动态障碍点云；RViz 中建议重点看这个。
+    dynamic_obstacle_cloud_topic: "/dynamic_obstacle_cloud"
 
-    robot_model: "ground_omni"   # ground_omni / ground_diff / aerial_3d
+    # ========== Robot Model / Static Collision ==========
+    # ground_omni：全向底盘，采样 vx/vy/wz；
+    # ground_diff：差速底盘，只采样 vx/wz；
+    # aerial_3d：预留空中机器人模式。
+    robot_model: "ground_omni"
 
-    obstacle_source: "octomap"   # octomap / pointcloud / both
+    # 障碍来源：octomap / pointcloud / both。
+    # both 表示静态 OctoMap + 实时点云同时参与碰撞检测。
+    obstacle_source: "both"
+    # 启动时预加载的 OctoMap 文件。
     octomap_file: "/home/jhr/3dnav_ws/maps/result_cleaned.bt"
+    # unknown 体素是否默认视为占据；当前 false，配合 unknown_policy 使用。
     unknown_as_occupied: false
+    # OctoMap 静态碰撞圆柱半径。不要为了动态点云随意调大，否则容易空场景也停。
     robot_radius: 0.2
+    # 机器人静态碰撞高度。
     robot_height: 0.25
+    # 非 terrain_adaptive_cylinder 模型下，碰撞圆柱底部 z 偏移。
     collision_z_offset: 0.10
+    # OctoMap 静态碰撞安全边距。
     safety_margin: 0.05
 
+    # ========== DWA Time / Sampling ==========
+    # 控制频率，单位 Hz。
     control_frequency: 10.0
+    # 候选轨迹向前仿真时间。越大越能提前避障，但计算量更高。
     sim_time: 1.2
+    # 仿真积分步长。越小越精细，计算量越高。
     sim_dt: 0.2
 
+    # 速度范围，单位 m/s 和 rad/s。
     max_vx: 0.6
     min_vx: -0.2
     max_vy: 0.4
@@ -41,73 +102,179 @@ local_planner_node:
     max_wz: 1.0
     min_wz: -1.0
 
+    # 动态窗口加速度约束。
     max_acc_vx: 0.5
     max_acc_vy: 0.5
     max_acc_wz: 1.5
 
+    # 速度采样数量。数量越大轨迹越丰富，计算越慢。
     vx_samples: 5
     vy_samples: 5
     wz_samples: 7
 
+    # ========== Path Following ==========
+    # 从当前路径最近点向前选局部目标的距离。
     local_goal_lookahead: 1.5
+    # 距最终目标小于该值时停车。
     goal_reached_tolerance: 0.3
+    # 当前位姿距离路径点小于该值时修剪已走过路径。
     path_prune_distance: 0.5
 
+    # ========== Trajectory Scoring Weights ==========
+    # 路径贴合度权重。
     weight_path_distance: 1.0
+    # 局部目标接近度权重。
     weight_goal_distance: 1.2
+    # 静态/综合障碍距离权重。
     weight_obstacle_distance: 1.5
+    # 朝向局部目标权重。
     weight_heading: 0.5
+    # 速度偏好权重。
     weight_velocity: 0.2
+    # 命令平滑性权重。
     weight_smoothness: 0.2
+    # 动态点云障碍距离权重。越大越偏向远离动态障碍。
+    weight_dynamic_obstacle_distance: 2.0
 
+    # ========== Collision / Dynamic Obstacle Behavior ==========
+    # OctoMap 采样碰撞检查分辨率。
     obstacle_check_resolution: 0.2
+    # 最小障碍距离阈值，与机器人半径/安全边距共同决定静态碰撞阈值。
     min_obstacle_distance: 0.10
+    # 障碍距离评分饱和值，越大越提前偏向远离障碍。
     obstacle_score_distance: 1.0
+    # 无有效轨迹时是否发布零速度。
     stop_on_no_valid_trajectory: true
+    # 开启前方动态障碍速度缩放。
+    enable_dynamic_speed_scaling: true
+    # 动态点云先做高度过滤，再按 2D footprint 判断碰撞；对地面机器人更稳定。
+    dynamic_obstacle_use_2d_footprint: true
+    # 仅用于实时点云动态避障的半径，不影响 OctoMap 静态碰撞。
+    dynamic_obstacle_radius: 0.35
+    # 仅用于实时点云动态避障的安全边距。
+    dynamic_obstacle_safety_margin: 0.15
+    # 前方动态障碍距离小于该值时停车；实际不会小于 dynamic radius + margin。
+    dynamic_obstacle_stop_distance: 0.35
+    # 前方动态障碍距离小于该值时开始线性降速。
+    dynamic_obstacle_slow_distance: 0.5
+    # 降速时的最小速度比例，避免过早完全停死。
+    min_speed_scale: 0.2
 
+    # ========== Point Cloud Preprocessing ==========
+    # 点云在 base_link 局部坐标中的裁剪范围，单位 m。
+    local_cloud_range_x: 4.0
+    local_cloud_range_y: 3.0
+    local_cloud_range_z_min: -0.2
+    local_cloud_range_z_max: 1.2
+    # voxel 降采样叶子尺寸。
+    voxel_leaf_size: 0.08
+    # 是否启用 voxel 降采样。
+    enable_voxel_filter: true
+    # 是否移除地面/低矮点。若前方障碍消失，可降低 ground_z_threshold 或临时关闭。
+    remove_ground_points: true
+    # 地面过滤阈值。你当前前方障碍被吃掉过，所以设得较低。
+    ground_z_threshold: 0.02
+    # true 表示用 base_link 相对高度判断地面。
+    ground_relative_to_base: true
+    # 是否过滤机器人自身附近点云。
+    ignore_robot_self_points: true
+    # 自身点过滤半径。
+    self_filter_radius: 0.45
+    # 自身点过滤 z 范围。
+    self_filter_z_min: -0.3
+    self_filter_z_max: 1.2
+    # 动态障碍缓存过期时间。
+    dynamic_obstacle_decay_time: 1.0
+
+    # ========== Terrain Following / Z Reference ==========
+    # 地面机器人仍输出 2D 速度，但碰撞 z 参考可跟随三维路径。
     use_path_z_for_collision: true
+    # 开启地形跟随。
     terrain_following_enabled: true
+    # 路径 z 搜索半径。
     z_search_radius: 0.6
+    # 每个仿真步允许 z 参考变化的最大跳变。
     max_allowed_z_jump: 0.35
+    # 坡边缘上方检查的 z 容差。
     slope_edge_z_tolerance: 0.45
 
+    # ========== Static Collision Model ==========
+    # terrain_adaptive_cylinder：适合地面机器人，忽略地面附近低体素。
     collision_model: "terrain_adaptive_cylinder"
+    # 机器人离地间隙。
     ground_clearance: 0.05
+    # body 碰撞检测相对参考 z 的底部偏移。
     body_z_offset: 0.10
+    # 是否忽略 base 下方地面体素。
     ignore_ground_below_base: true
+    # 忽略地面深度。
     ground_ignore_depth: 0.15
+    # 坡边缘附近是否放宽低矮占据体素。
     slope_edge_relaxation_enabled: true
+    # 坡边缘放宽半径。
     slope_edge_relaxation_radius: 0.25
 
+    # ========== Unknown Space Policy ==========
+    # free：unknown 可走；
+    # occupied：unknown 视为障碍；
+    # path_corridor_free：路径走廊内 unknown 可走。
     unknown_policy: "path_corridor_free"
+    # path_corridor_free 模式下路径走廊半径。
     path_corridor_radius: 0.5
 
+    # ========== Adaptive Lookahead ==========
+    # 根据偏离路径程度和 z 变化自动调整局部目标距离。
     adaptive_lookahead_enabled: true
     min_local_goal_lookahead: 0.4
     max_local_goal_lookahead: 1.8
+    # 前方路径 z 变化超过该值时缩短 lookahead。
     z_change_slowdown_threshold: 0.25
 
+    # ========== Recovery / Stuck Detection ==========
+    # 无有效轨迹或卡住时尝试 recovery。
     recovery_enabled: true
+    # 是否检测卡住状态。
     stuck_detection_enabled: true
+    # 持续无进展超过该时间认为卡住。
     stuck_time_threshold: 2.0
+    # 小于该位移认为没有有效进展。
     min_progress_distance: 0.05
+    # recovery 候选动作仿真时间。
     recovery_duration: 1.0
+    # 允许后退逃脱。
     enable_reverse_escape: true
+    # 允许横移逃脱；差速模型会自动禁用。
     enable_lateral_escape: true
+    # 允许原地旋转逃脱。
     enable_rotate_escape: true
 
+    # ========== Extra Scoring Terms ==========
+    # 靠近全局路径时给额外奖励。
     near_path_bonus_enabled: true
+    # 路径附近奖励半径。
     near_path_bonus_radius: 0.4
+    # 路径走廊奖励权重。
     weight_path_corridor: 1.0
+    # z 参考一致性权重。
     weight_z_consistency: 0.8
+    # 沿全局路径前进权重。
     weight_progress: 1.0
 
+    # ========== Debug / Visualization Options ==========
+    # 发布 DWA debug 文本。
     debug_dwa: true
+    # 输出碰撞相关 debug 统计。
     debug_collision: true
 
+    # 是否发布候选轨迹 MarkerArray。
     publish_candidate_trajectories: true
+    # 候选轨迹可视化抽样步长；越大显示越少。
     candidate_marker_stride: 2
+    # Marker 生命周期，单位 s。
     marker_lifetime: 0.4
+    # TF 查询超时。
     tf_timeout: 0.05
+    # odom 速度超时。
     odom_timeout: 0.5
+    # sport mode 速度超时。
     sport_mode_timeout: 0.5

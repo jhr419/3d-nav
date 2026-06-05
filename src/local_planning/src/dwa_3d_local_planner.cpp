@@ -160,6 +160,28 @@ bool DWA3DLocalPlanner::computeVelocityCommand(
   const double wz_min = std::max(config_.min_wz, current_vel.wz - config_.max_acc_wz * control_dt);
   const double wz_max = std::min(config_.max_wz, current_vel.wz + config_.max_acc_wz * control_dt);
 
+  const double dynamic_speed_scale = computeDynamicObstacleSpeedScale(current_pose);
+  last_debug_info_.dynamic_obstacle_speed_scale = dynamic_speed_scale;
+  last_debug_info_.nearest_dynamic_obstacle_distance = minForwardPointCloudDistance(current_pose);
+  if (config_.enable_dynamic_speed_scaling && usePointCloud() && dynamic_speed_scale < 1.0) {
+    const double escape_scale =
+      dynamic_speed_scale <= 1.0e-6 ?
+      clamp(config_.min_speed_scale, 0.0, 1.0) : dynamic_speed_scale;
+
+    if (dynamic_speed_scale <= 1.0e-6) {
+      vx_min = std::min(vx_min, 0.0);
+      vx_max = 0.0;
+    } else {
+      vx_min *= dynamic_speed_scale;
+      vx_max *= dynamic_speed_scale;
+    }
+
+    if (config_.robot_model != "ground_diff") {
+      vy_min *= escape_scale;
+      vy_max *= escape_scale;
+    }
+  }
+
   int vy_samples = config_.vy_samples;
   if (config_.robot_model == "ground_diff") {
     vy_min = 0.0;
@@ -184,9 +206,12 @@ bool DWA3DLocalPlanner::computeVelocityCommand(
 
         Trajectory3D traj = simulateTrajectory(current_pose, sampled_cmd);
         double min_obstacle_distance = std::numeric_limits<double>::infinity();
-        traj.collision_free =
-          evaluateCollisionAndDistance(traj.poses, min_obstacle_distance, &last_debug_info_);
+        double min_dynamic_obstacle_distance = std::numeric_limits<double>::infinity();
+        traj.collision_free = evaluateCollisionAndDistance(
+          traj.poses, min_obstacle_distance, &last_debug_info_,
+          &min_dynamic_obstacle_distance);
         traj.min_obstacle_distance = min_obstacle_distance;
+        traj.min_dynamic_obstacle_distance = min_dynamic_obstacle_distance;
         if (traj.collision_free) {
           ++last_debug_info_.valid_trajectories;
           traj.score = scoreTrajectory(traj, current_pose, global_path, local_goal);
@@ -226,6 +251,41 @@ double DWA3DLocalPlanner::getMinObstacleDistance(const std::vector<Pose3D> & tra
   double min_obstacle_distance = std::numeric_limits<double>::infinity();
   evaluateCollisionAndDistance(traj, min_obstacle_distance);
   return min_obstacle_distance;
+}
+
+double DWA3DLocalPlanner::getMinDynamicObstacleDistance(const std::vector<Pose3D> & traj) const
+{
+  double min_obstacle_distance = std::numeric_limits<double>::infinity();
+  double min_dynamic_obstacle_distance = std::numeric_limits<double>::infinity();
+  evaluateCollisionAndDistance(
+    traj, min_obstacle_distance, nullptr, &min_dynamic_obstacle_distance);
+  return min_dynamic_obstacle_distance;
+}
+
+double DWA3DLocalPlanner::computeDynamicObstacleSpeedScale(const Pose3D & current_pose) const
+{
+  if (!config_.enable_dynamic_speed_scaling || !usePointCloud()) {
+    return 1.0;
+  }
+
+  const double dynamic_distance = minForwardPointCloudDistance(current_pose);
+  if (!std::isfinite(dynamic_distance)) {
+    return 1.0;
+  }
+
+  const double stop_distance = std::max(
+    dynamicCollisionDistanceThreshold(),
+    config_.dynamic_obstacle_stop_distance);
+  const double slow_distance = std::max(stop_distance + 1.0e-3, config_.dynamic_obstacle_slow_distance);
+  if (dynamic_distance <= stop_distance) {
+    return 0.0;
+  }
+  if (dynamic_distance >= slow_distance) {
+    return 1.0;
+  }
+
+  const double raw_scale = (dynamic_distance - stop_distance) / (slow_distance - stop_distance);
+  return clamp(raw_scale, clamp(config_.min_speed_scale, 0.0, 1.0), 1.0);
 }
 
 const std::vector<Trajectory3D> & DWA3DLocalPlanner::getLastCandidateTrajectories() const
@@ -503,12 +563,27 @@ double DWA3DLocalPlanner::scoreTrajectory(
 
   const double min_obstacle_distance = traj.min_obstacle_distance;
   const double collision_threshold = collisionDistanceThreshold();
+  const double dynamic_collision_threshold = dynamicCollisionDistanceThreshold();
   double obstacle_score = 1.0;
   if (std::isfinite(min_obstacle_distance)) {
     const double score_span =
       std::max(1.0e-3, config_.obstacle_score_distance - collision_threshold);
     obstacle_score = clamp(
       (min_obstacle_distance - collision_threshold) / score_span, 0.0, 1.0);
+  }
+
+  double dynamic_obstacle_score = 1.0;
+  if (usePointCloud() && std::isfinite(traj.min_dynamic_obstacle_distance)) {
+    const double stop_distance = std::max(
+      dynamic_collision_threshold,
+      config_.dynamic_obstacle_stop_distance);
+    const double slow_distance =
+      std::max(stop_distance + 1.0e-3, config_.dynamic_obstacle_slow_distance);
+    dynamic_obstacle_score =
+      clamp(
+        (traj.min_dynamic_obstacle_distance - stop_distance) / (slow_distance - stop_distance),
+        0.0,
+        1.0);
   }
 
   const double target_yaw = std::atan2(local_goal.y() - end_pose.y, local_goal.x() - end_pose.x);
@@ -564,6 +639,7 @@ double DWA3DLocalPlanner::scoreTrajectory(
          config_.weight_heading * heading_score +
          config_.weight_velocity * velocity_score +
          config_.weight_smoothness * smoothness_score +
+         config_.weight_dynamic_obstacle_distance * dynamic_obstacle_score +
          (config_.near_path_bonus_enabled ? config_.weight_path_corridor * path_corridor_score : 0.0) +
          config_.weight_z_consistency * z_consistency_score +
          config_.weight_progress * progress_score;
@@ -572,16 +648,27 @@ double DWA3DLocalPlanner::scoreTrajectory(
 bool DWA3DLocalPlanner::evaluateCollisionAndDistance(
   const std::vector<Pose3D> & traj,
   double & min_obstacle_distance,
-  DwaDebugInfo * debug_info) const
+  DwaDebugInfo * debug_info,
+  double * min_dynamic_obstacle_distance) const
 {
   min_obstacle_distance = std::numeric_limits<double>::infinity();
+  double dynamic_min = std::numeric_limits<double>::infinity();
   const double collision_threshold = collisionDistanceThreshold();
+  const double dynamic_collision_threshold = dynamicCollisionDistanceThreshold();
 
-  for (const auto & pose : traj) {
+  for (std::size_t pose_index = 0; pose_index < traj.size(); ++pose_index) {
+    if (pose_index == 0 && traj.size() > 1) {
+      continue;
+    }
+    const auto & pose = traj[pose_index];
     if (usePointCloud()) {
       const double cloud_distance = minPointCloudDistance(pose);
+      dynamic_min = std::min(dynamic_min, cloud_distance);
       min_obstacle_distance = std::min(min_obstacle_distance, cloud_distance);
-      if (cloud_distance <= collision_threshold) {
+      if (cloud_distance <= dynamic_collision_threshold) {
+        if (min_dynamic_obstacle_distance) {
+          *min_dynamic_obstacle_distance = dynamic_min;
+        }
         return false;
       }
     }
@@ -597,22 +684,40 @@ bool DWA3DLocalPlanner::evaluateCollisionAndDistance(
             ++debug_info->ground_blocked_count;
           }
         }
+        if (min_dynamic_obstacle_distance) {
+          *min_dynamic_obstacle_distance = dynamic_min;
+        }
         return false;
       }
       if (min_obstacle_distance <= collision_threshold &&
         toLower(config_.collision_model) != "terrain_adaptive_cylinder")
       {
+        if (min_dynamic_obstacle_distance) {
+          *min_dynamic_obstacle_distance = dynamic_min;
+        }
         return false;
       }
     }
   }
 
+  if (min_dynamic_obstacle_distance) {
+    *min_dynamic_obstacle_distance = dynamic_min;
+  }
   return true;
 }
 
 double DWA3DLocalPlanner::minPointCloudDistance(const Pose3D & pose) const
 {
   double min_distance = std::numeric_limits<double>::infinity();
+  if (config_.dynamic_obstacle_use_2d_footprint) {
+    for (const auto & point : obstacle_cloud_) {
+      min_distance = std::min(
+        min_distance,
+        std::hypot(point.x() - pose.x, point.y() - pose.y));
+    }
+    return min_distance;
+  }
+
   const double bottom_z = collisionBodyMinZ(pose);
   const double top_z = collisionBodyMaxZ(pose);
 
@@ -623,6 +728,49 @@ double DWA3DLocalPlanner::minPointCloudDistance(const Pose3D & pose) const
     }
     min_distance = std::min(
       min_distance,
+      footprintObstacleDistanceToBounds(pose, point, bottom_z, top_z));
+  }
+
+  return min_distance;
+}
+
+double DWA3DLocalPlanner::minForwardPointCloudDistance(const Pose3D & pose) const
+{
+  if (!usePointCloud()) {
+    return std::numeric_limits<double>::infinity();
+  }
+
+  double min_distance = std::numeric_limits<double>::infinity();
+  const double bottom_z = collisionBodyMinZ(pose);
+  const double top_z = collisionBodyMaxZ(pose);
+  const double collision_radius = dynamicCollisionDistanceThreshold();
+  const double lateral_limit = collision_radius + std::max(0.15, config_.robot_radius);
+  const double forward_limit =
+    collision_radius + std::max(config_.dynamic_obstacle_slow_distance, config_.obstacle_score_distance);
+  const double cos_yaw = std::cos(pose.yaw);
+  const double sin_yaw = std::sin(pose.yaw);
+
+  for (const auto & point : obstacle_cloud_) {
+    if (!config_.dynamic_obstacle_use_2d_footprint &&
+      (point.z() < bottom_z || point.z() > top_z + config_.obstacle_score_distance))
+    {
+      continue;
+    }
+
+    const double dx = point.x() - pose.x;
+    const double dy = point.y() - pose.y;
+    const double local_x = cos_yaw * dx + sin_yaw * dy;
+    const double local_y = -sin_yaw * dx + cos_yaw * dy;
+    if (local_x < -collision_radius || local_x > forward_limit ||
+      std::abs(local_y) > lateral_limit)
+    {
+      continue;
+    }
+
+    min_distance = std::min(
+      min_distance,
+      config_.dynamic_obstacle_use_2d_footprint ?
+      std::hypot(dx, dy) :
       footprintObstacleDistanceToBounds(pose, point, bottom_z, top_z));
   }
 
@@ -881,19 +1029,27 @@ bool DWA3DLocalPlanner::computeRecoveryCommand(
 
 bool DWA3DLocalPlanner::useOctomap() const
 {
-  return config_.obstacle_source == "octomap" || config_.obstacle_source == "both";
+  const std::string source = toLower(config_.obstacle_source);
+  return source == "octomap" || source == "both";
 }
 
 bool DWA3DLocalPlanner::usePointCloud() const
 {
-  return (config_.obstacle_source == "pointcloud" || config_.obstacle_source == "both") &&
-         !obstacle_cloud_.empty();
+  const std::string source = toLower(config_.obstacle_source);
+  return (source == "pointcloud" || source == "both") && !obstacle_cloud_.empty();
 }
 
 double DWA3DLocalPlanner::collisionDistanceThreshold() const
 {
   return std::max(
     config_.robot_radius + config_.safety_margin,
+    config_.min_obstacle_distance);
+}
+
+double DWA3DLocalPlanner::dynamicCollisionDistanceThreshold() const
+{
+  return std::max(
+    config_.dynamic_obstacle_radius + config_.dynamic_obstacle_safety_margin,
     config_.min_obstacle_distance);
 }
 

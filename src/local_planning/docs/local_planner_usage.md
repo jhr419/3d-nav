@@ -29,7 +29,9 @@ ros2 launch local_planning navigation_3d.launch.py
 | `/sportmodestate` | `unitree_go/msg/SportModeState` | Unitree 当前运动速度来源，使用 `velocity[0..2]` 和 `yaw_speed`。 |
 | `/odom` | `nav_msgs/msg/Odometry` | 可选当前速度来源；没有 `/sportmodestate` 时可用它或 `last_cmd`。 |
 | `/octomap` | `octomap_msgs/msg/Octomap` | OctoMap 障碍物来源。 |
-| `/local_obstacle_cloud` | `sensor_msgs/msg/PointCloud2` | 局部点云障碍物来源，节点会转换到 `map` 坐标系。 |
+| `/cloud_registered_body` | `sensor_msgs/msg/PointCloud2` | 默认实时避障点云来源。FAST-LIO 里该话题的 `frame_id` 常为 `body`，本包默认按 `body:livox_frame` 重映射后再查 TF。 |
+| `/livox/lidar` / `/mid360` | `sensor_msgs/msg/PointCloud2` | 默认额外监听的点云来源，由 `additional_pointcloud_topics` 配置。 |
+| `/local_obstacle_cloud` | `sensor_msgs/msg/PointCloud2` | 兼容旧参数 `local_obstacle_cloud_topic` 的额外点云来源；如果和 `pointcloud_topic` 不同会同时订阅。 |
 
 ## 发布话题
 
@@ -42,6 +44,7 @@ ros2 launch local_planning navigation_3d.launch.py
 | `/recovery_trajectory_marker` | `visualization_msgs/msg/Marker` | DWA 无有效轨迹或卡住时尝试的安全恢复轨迹。 |
 | `/path_corridor_marker` | `visualization_msgs/msg/Marker` | 全局路径附近 unknown 放行走廊的半透明提示线。 |
 | `/dwa_debug_text` | `std_msgs/msg/String` | 输出候选轨迹统计、碰撞原因、卡住状态和 recovery 状态。 |
+| `/dynamic_obstacle_cloud` | `sensor_msgs/msg/PointCloud2` | DWA 实际使用的过滤后动态避障点云，可在 RViz 中直接检查。 |
 
 ## 关键参数
 
@@ -60,7 +63,19 @@ src/local_planning/config/local_planner.yaml
 | `robot_model` | `ground_omni`、`ground_diff`、`aerial_3d`；当前主要实现 `vx/vy/wz`。 |
 | `sport_mode_state_topic` | Unitree 运动状态话题，默认 `/sportmodestate`；如果实际是 `/lf/sportmodestate`，在 YAML 中改这里。 |
 | `velocity_source` | DWA 当前速度来源：`sport_mode` 使用 `SportModeState`；`auto` 优先用新鲜 `SportModeState`，其次 `/odom`，最后上一条命令；`odom` 只用 `/odom`；`last_cmd` 用上一条 `/cmd_vel`；`zero` 每周期假设从零速开始。 |
-| `obstacle_source` | `octomap`、`pointcloud`、`both`。 |
+| `obstacle_source` | `octomap`、`pointcloud`、`both`；默认 `both`，同时使用静态 OctoMap 和实时点云。 |
+| `pointcloud_topic` / `additional_pointcloud_topics` / `pointcloud_frame_mode` | 实时点云话题和额外候选话题；`auto` 默认转到 `map` 并按当前 `base_frame` 做局部裁剪，也可强制 `map` 或 `base_link`。 |
+| `pointcloud_frame_remaps` | 点云消息 frame 到 TF frame 的重映射，默认 `body:livox_frame`，用于 FAST-LIO `/cloud_registered_body`。 |
+| `pointcloud_timeout` / `allow_planning_without_fresh_cloud` | 点云超过超时时视为不新鲜；`both` 下允许点云超时后只用 OctoMap 继续规划。 |
+| `local_cloud_range_*` | 机器人局部范围裁剪窗口，按 base 坐标过滤点云。 |
+| `remove_ground_points` / `ground_z_threshold` / `ground_relative_to_base` | 去除地面和低矮坡面点，避免把脚下地面当障碍。 |
+| `ignore_robot_self_points` / `self_filter_*` | 去除机器人自身半径内点云。 |
+| `enable_voxel_filter` / `voxel_leaf_size` | 对动态障碍点云做 voxel 降采样。 |
+| `dynamic_obstacle_decay_time` | 动态点云缓存过期时间，过期后自动清空点云障碍层。 |
+| `dynamic_obstacle_use_2d_footprint` | 默认开启。动态点云先做高度/地面过滤，再按平面 footprint 判断碰撞，避免障碍点因高度没落在机器人 body 薄切片内被放过。 |
+| `dynamic_obstacle_radius` / `dynamic_obstacle_safety_margin` | 只用于实时点云动态避障的 footprint；OctoMap 静态碰撞仍使用 `robot_radius` / `safety_margin`。 |
+| `weight_dynamic_obstacle_distance` | DWA 评分中的动态障碍距离权重。 |
+| `enable_dynamic_speed_scaling` / `dynamic_obstacle_stop_distance` / `dynamic_obstacle_slow_distance` / `min_speed_scale` | 前方动态障碍距离触发的采样速度缩放；进入 stop 距离时正向速度窗口压到 0，保留低速停车/避让空间。 |
 | `octomap_file` | 启动时预加载的 `.bt/.ot` 地图文件。 |
 | `robot_radius` / `robot_height` / `safety_margin` | 地面机器人碰撞检测圆柱体尺寸。 |
 | `collision_z_offset` | 碰撞圆柱体相对 `base_frame` 的底部 z 偏移，用于避开地面占据体素。 |
@@ -89,6 +104,7 @@ src/local_planning/config/local_planner.yaml
 /local_goal_marker
 /recovery_trajectory_marker
 /path_corridor_marker
+/dynamic_obstacle_cloud
 /octomap_occupied_markers
 ```
 
@@ -101,7 +117,7 @@ ros2 topic echo /dwa_debug_text
 ros2 topic echo /cmd_vel
 ```
 
-`/dwa_debug_text` 中的 `unknown_blocked_count`、`ground_blocked_count`、`valid_trajectories` 和 `recovery_state` 可以快速判断是 unknown 走廊、贴地体素还是恢复动作在起作用。
+`/dwa_debug_text` 中的 `unknown_blocked_count`、`ground_blocked_count`、`valid_trajectories`、`dynamic_cloud_fresh`、`dynamic_cloud_points`、`dynamic_obstacle_speed_scale` 和 `recovery_state` 可以快速判断是 unknown 走廊、贴地体素、实时点云还是恢复动作在起作用。
 
 ## 与全局规划器的接口约定
 

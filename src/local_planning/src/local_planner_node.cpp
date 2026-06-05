@@ -13,6 +13,7 @@
 
 #include <Eigen/Core>
 #include <builtin_interfaces/msg/duration.hpp>
+#include <builtin_interfaces/msg/time.hpp>
 #include <octomap/AbstractOcTree.h>
 #include <octomap/OcTree.h>
 #include <octomap_msgs/conversions.h>
@@ -22,6 +23,7 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "local_planning/dynamic_obstacle_layer.hpp"
 #include "local_planning/dwa_3d_local_planner.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
@@ -79,6 +81,18 @@ std::vector<std::string> splitFrameList(const std::string & frames)
   return out;
 }
 
+std::string joinList(const std::vector<std::string> & values)
+{
+  std::ostringstream ss;
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      ss << ',';
+    }
+    ss << values[i];
+  }
+  return ss.str();
+}
+
 std::string toLower(std::string value)
 {
   std::transform(
@@ -91,6 +105,29 @@ bool endsWith(const std::string & value, const std::string & suffix)
 {
   return value.size() >= suffix.size() &&
          value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+bool containsFrameName(
+  const std::vector<std::string> & frames,
+  const std::string & frame)
+{
+  return !frame.empty() && std::find(frames.begin(), frames.end(), frame) != frames.end();
+}
+
+std::string remapFrameName(const std::string & frame, const std::string & remaps)
+{
+  for (const auto & item : splitFrameList(remaps)) {
+    const auto separator = item.find(':');
+    if (separator == std::string::npos) {
+      continue;
+    }
+    const std::string from = trim(item.substr(0, separator));
+    const std::string to = trim(item.substr(separator + 1));
+    if (!from.empty() && !to.empty() && frame == from) {
+      return to;
+    }
+  }
+  return frame;
 }
 
 geometry_msgs::msg::Point makePoint(double x, double y, double z)
@@ -124,6 +161,32 @@ double groundDistance(const Pose3D & pose, const Eigen::Vector3d & point, bool u
   return std::hypot(pose.x - point.x(), pose.y - point.y());
 }
 
+sensor_msgs::msg::PointCloud2 makePointCloudMsg(
+  const std::vector<Eigen::Vector3d> & points,
+  const std::string & frame_id,
+  const builtin_interfaces::msg::Time & stamp)
+{
+  sensor_msgs::msg::PointCloud2 msg;
+  msg.header.stamp = stamp;
+  msg.header.frame_id = frame_id;
+  sensor_msgs::PointCloud2Modifier modifier(msg);
+  modifier.setPointCloud2FieldsByString(1, "xyz");
+  modifier.resize(points.size());
+
+  sensor_msgs::PointCloud2Iterator<float> iter_x(msg, "x");
+  sensor_msgs::PointCloud2Iterator<float> iter_y(msg, "y");
+  sensor_msgs::PointCloud2Iterator<float> iter_z(msg, "z");
+  for (const auto & point : points) {
+    *iter_x = static_cast<float>(point.x());
+    *iter_y = static_cast<float>(point.y());
+    *iter_z = static_cast<float>(point.z());
+    ++iter_x;
+    ++iter_y;
+    ++iter_z;
+  }
+  return msg;
+}
+
 }  // namespace
 
 class LocalPlannerNode : public rclcpp::Node
@@ -136,6 +199,7 @@ public:
   {
     declareParameters();
     planner_.setConfig(readPlannerConfig());
+    dynamic_obstacle_layer_.setConfig(readDynamicObstacleConfig());
 
     tf_buffer_.setCreateTimerInterface(
       std::make_shared<tf2_ros::CreateTimerROS>(
@@ -144,6 +208,9 @@ public:
     const auto global_path_topic = get_parameter("global_path_topic").as_string();
     const auto additional_global_path_topic =
       get_parameter("additional_global_path_topic").as_string();
+    const auto pointcloud_topic = get_parameter("pointcloud_topic").as_string();
+    const auto additional_pointcloud_topics =
+      get_parameter("additional_pointcloud_topics").as_string();
     const auto local_obstacle_cloud_topic =
       get_parameter("local_obstacle_cloud_topic").as_string();
     const auto octomap_topic = get_parameter("octomap_topic").as_string();
@@ -171,9 +238,31 @@ public:
     sport_mode_state_sub_ = create_subscription<unitree_go::msg::SportModeState>(
       sport_mode_state_topic, rclcpp::QoS(30).reliable(),
       std::bind(&LocalPlannerNode::onSportModeState, this, std::placeholders::_1));
-    obstacle_cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
-      local_obstacle_cloud_topic, rclcpp::SensorDataQoS(),
-      std::bind(&LocalPlannerNode::onObstacleCloud, this, std::placeholders::_1));
+    std::vector<std::string> pointcloud_topics;
+    if (!trim(pointcloud_topic).empty()) {
+      pointcloud_topics.push_back(trim(pointcloud_topic));
+    }
+    for (const auto & topic : splitFrameList(additional_pointcloud_topics)) {
+      if (std::find(pointcloud_topics.begin(), pointcloud_topics.end(), topic) == pointcloud_topics.end()) {
+        pointcloud_topics.push_back(topic);
+      }
+    }
+    const std::string trimmed_local_obstacle_cloud_topic = trim(local_obstacle_cloud_topic);
+    if (!trimmed_local_obstacle_cloud_topic.empty() &&
+      std::find(
+        pointcloud_topics.begin(), pointcloud_topics.end(),
+        trimmed_local_obstacle_cloud_topic) == pointcloud_topics.end())
+    {
+      pointcloud_topics.push_back(trimmed_local_obstacle_cloud_topic);
+    }
+    pointcloud_topic_names_ = pointcloud_topics;
+    for (const auto & topic : pointcloud_topic_names_) {
+      pointcloud_subs_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
+        topic, rclcpp::SensorDataQoS(),
+        [this, topic](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+          onObstacleCloud(msg, topic);
+        }));
+    }
     octomap_sub_ = create_subscription<octomap_msgs::msg::Octomap>(
       octomap_topic, rclcpp::QoS(1).transient_local().reliable(),
       std::bind(&LocalPlannerNode::onOctomap, this, std::placeholders::_1));
@@ -197,6 +286,9 @@ public:
     debug_text_pub_ = create_publisher<std_msgs::msg::String>(
       get_parameter("dwa_debug_text_topic").as_string(),
       rclcpp::QoS(10).reliable());
+    dynamic_obstacle_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      get_parameter("dynamic_obstacle_cloud_topic").as_string(),
+      rclcpp::QoS(1).transient_local().reliable());
 
     loadOctomapFile(get_parameter("octomap_file").as_string());
 
@@ -208,11 +300,12 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "local_planner_node started. path=%s alias=%s odom=%s sport_mode=%s obstacle_cloud=%s "
+      "local_planner_node started. path=%s alias=%s odom=%s sport_mode=%s pointclouds=%s "
       "octomap=%s cmd_vel=%s map_frame=%s base_frame=%s obstacle_source=%s velocity_source=%s",
       global_path_topic.c_str(),
       additional_global_path_topic.empty() ? "(none)" : additional_global_path_topic.c_str(),
-      odom_topic.c_str(), sport_mode_state_topic.c_str(), local_obstacle_cloud_topic.c_str(),
+      odom_topic.c_str(), sport_mode_state_topic.c_str(),
+      pointcloud_topic_names_.empty() ? "(none)" : joinList(pointcloud_topic_names_).c_str(),
       octomap_topic.c_str(), cmd_vel_topic.c_str(),
       get_parameter("map_frame").as_string().c_str(), get_parameter("base_frame").as_string().c_str(),
       planner_.getConfig().obstacle_source.c_str(),
@@ -232,6 +325,15 @@ private:
     declare_parameter<std::string>("odom_topic", "/odom");
     declare_parameter<std::string>("velocity_source", "auto");
     declare_parameter<std::string>("sport_mode_state_topic", "/sportmodestate");
+    declare_parameter<std::string>("pointcloud_topic", "/cloud_registered_body");
+    declare_parameter<std::string>(
+      "additional_pointcloud_topics", "/livox/lidar,/mid360");
+    declare_parameter<std::string>("pointcloud_frame_mode", "auto");
+    declare_parameter<std::string>("pointcloud_frame_remaps", "body:livox_frame");
+    declare_parameter<std::string>("pointcloud_map_frame_aliases", "camera_init");
+    declare_parameter<std::string>("pointcloud_base_frame_aliases", "");
+    declare_parameter<double>("pointcloud_timeout", 0.5);
+    declare_parameter<bool>("allow_planning_without_fresh_cloud", true);
     declare_parameter<std::string>("local_obstacle_cloud_topic", "/local_obstacle_cloud");
     declare_parameter<std::string>("octomap_topic", "/octomap");
     declare_parameter<std::string>("local_trajectory_marker_topic", "/local_trajectory_marker");
@@ -240,14 +342,15 @@ private:
     declare_parameter<std::string>("recovery_trajectory_marker_topic", "/recovery_trajectory_marker");
     declare_parameter<std::string>("path_corridor_marker_topic", "/path_corridor_marker");
     declare_parameter<std::string>("dwa_debug_text_topic", "/dwa_debug_text");
+    declare_parameter<std::string>("dynamic_obstacle_cloud_topic", "/dynamic_obstacle_cloud");
     declare_parameter<std::string>("robot_model", "ground_omni");
-    declare_parameter<std::string>("obstacle_source", "octomap");
+    declare_parameter<std::string>("obstacle_source", "both");
     declare_parameter<std::string>("octomap_file", "/home/jhr/3dnav_ws/maps/result_cleaned.bt");
     declare_parameter<bool>("unknown_as_occupied", true);
-    declare_parameter<double>("robot_radius", 0.35);
-    declare_parameter<double>("robot_height", 0.6);
+    declare_parameter<double>("robot_radius", 0.2);
+    declare_parameter<double>("robot_height", 0.25);
     declare_parameter<double>("collision_z_offset", 0.10);
-    declare_parameter<double>("safety_margin", 0.15);
+    declare_parameter<double>("safety_margin", 0.05);
     declare_parameter<double>("control_frequency", 10.0);
     declare_parameter<double>("sim_time", 2.0);
     declare_parameter<double>("sim_dt", 0.1);
@@ -272,10 +375,18 @@ private:
     declare_parameter<double>("weight_heading", 0.5);
     declare_parameter<double>("weight_velocity", 0.2);
     declare_parameter<double>("weight_smoothness", 0.2);
+    declare_parameter<double>("weight_dynamic_obstacle_distance", 2.0);
     declare_parameter<double>("obstacle_check_resolution", 0.1);
     declare_parameter<double>("min_obstacle_distance", 0.25);
     declare_parameter<double>("obstacle_score_distance", 2.0);
     declare_parameter<bool>("stop_on_no_valid_trajectory", true);
+    declare_parameter<bool>("enable_dynamic_speed_scaling", true);
+    declare_parameter<bool>("dynamic_obstacle_use_2d_footprint", true);
+    declare_parameter<double>("dynamic_obstacle_radius", 0.35);
+    declare_parameter<double>("dynamic_obstacle_safety_margin", 0.15);
+    declare_parameter<double>("dynamic_obstacle_stop_distance", 0.35);
+    declare_parameter<double>("dynamic_obstacle_slow_distance", 0.8);
+    declare_parameter<double>("min_speed_scale", 0.2);
     declare_parameter<bool>("use_path_z_for_collision", true);
     declare_parameter<bool>("terrain_following_enabled", true);
     declare_parameter<double>("z_search_radius", 0.6);
@@ -309,6 +420,20 @@ private:
     declare_parameter<double>("weight_progress", 1.0);
     declare_parameter<bool>("debug_dwa", true);
     declare_parameter<bool>("debug_collision", true);
+    declare_parameter<double>("local_cloud_range_x", 4.0);
+    declare_parameter<double>("local_cloud_range_y", 3.0);
+    declare_parameter<double>("local_cloud_range_z_min", -0.2);
+    declare_parameter<double>("local_cloud_range_z_max", 1.2);
+    declare_parameter<double>("voxel_leaf_size", 0.08);
+    declare_parameter<bool>("enable_voxel_filter", true);
+    declare_parameter<bool>("remove_ground_points", true);
+    declare_parameter<double>("ground_z_threshold", 0.08);
+    declare_parameter<bool>("ground_relative_to_base", true);
+    declare_parameter<bool>("ignore_robot_self_points", true);
+    declare_parameter<double>("self_filter_radius", 0.45);
+    declare_parameter<double>("self_filter_z_min", -0.3);
+    declare_parameter<double>("self_filter_z_max", 1.2);
+    declare_parameter<double>("dynamic_obstacle_decay_time", 0.5);
     declare_parameter<bool>("publish_candidate_trajectories", true);
     declare_parameter<int>("candidate_marker_stride", 1);
     declare_parameter<double>("marker_lifetime", 0.4);
@@ -351,10 +476,23 @@ private:
     config.weight_heading = get_parameter("weight_heading").as_double();
     config.weight_velocity = get_parameter("weight_velocity").as_double();
     config.weight_smoothness = get_parameter("weight_smoothness").as_double();
+    config.weight_dynamic_obstacle_distance =
+      get_parameter("weight_dynamic_obstacle_distance").as_double();
     config.obstacle_check_resolution = get_parameter("obstacle_check_resolution").as_double();
     config.min_obstacle_distance = get_parameter("min_obstacle_distance").as_double();
     config.obstacle_score_distance = get_parameter("obstacle_score_distance").as_double();
     config.stop_on_no_valid_trajectory = get_parameter("stop_on_no_valid_trajectory").as_bool();
+    config.enable_dynamic_speed_scaling = get_parameter("enable_dynamic_speed_scaling").as_bool();
+    config.dynamic_obstacle_use_2d_footprint =
+      get_parameter("dynamic_obstacle_use_2d_footprint").as_bool();
+    config.dynamic_obstacle_radius = get_parameter("dynamic_obstacle_radius").as_double();
+    config.dynamic_obstacle_safety_margin =
+      get_parameter("dynamic_obstacle_safety_margin").as_double();
+    config.dynamic_obstacle_stop_distance =
+      get_parameter("dynamic_obstacle_stop_distance").as_double();
+    config.dynamic_obstacle_slow_distance =
+      get_parameter("dynamic_obstacle_slow_distance").as_double();
+    config.min_speed_scale = get_parameter("min_speed_scale").as_double();
     config.use_path_z_for_collision = get_parameter("use_path_z_for_collision").as_bool();
     config.terrain_following_enabled = get_parameter("terrain_following_enabled").as_bool();
     config.z_search_radius = get_parameter("z_search_radius").as_double();
@@ -391,6 +529,33 @@ private:
     config.weight_progress = get_parameter("weight_progress").as_double();
     config.debug_dwa = get_parameter("debug_dwa").as_bool();
     config.debug_collision = get_parameter("debug_collision").as_bool();
+    return config;
+  }
+
+  DynamicObstacleLayer::Config readDynamicObstacleConfig() const
+  {
+    DynamicObstacleLayer::Config config;
+    config.pointcloud_frame_mode = "map";
+    config.pointcloud_timeout = get_parameter("pointcloud_timeout").as_double();
+    config.local_cloud_range_x = get_parameter("local_cloud_range_x").as_double();
+    config.local_cloud_range_y = get_parameter("local_cloud_range_y").as_double();
+    config.local_cloud_range_z_min = get_parameter("local_cloud_range_z_min").as_double();
+    config.local_cloud_range_z_max = get_parameter("local_cloud_range_z_max").as_double();
+    config.voxel_leaf_size = get_parameter("voxel_leaf_size").as_double();
+    config.enable_voxel_filter = get_parameter("enable_voxel_filter").as_bool();
+    config.remove_ground_points = get_parameter("remove_ground_points").as_bool();
+    config.ground_z_threshold = get_parameter("ground_z_threshold").as_double();
+    config.ground_relative_to_base = get_parameter("ground_relative_to_base").as_bool();
+    config.ignore_robot_self_points = get_parameter("ignore_robot_self_points").as_bool();
+    config.self_filter_radius = get_parameter("self_filter_radius").as_double();
+    config.self_filter_z_min = get_parameter("self_filter_z_min").as_double();
+    config.self_filter_z_max = get_parameter("self_filter_z_max").as_double();
+    config.dynamic_obstacle_decay_time =
+      get_parameter("dynamic_obstacle_decay_time").as_double();
+    config.robot_radius = get_parameter("dynamic_obstacle_radius").as_double();
+    config.robot_height = get_parameter("robot_height").as_double();
+    config.safety_margin = get_parameter("dynamic_obstacle_safety_margin").as_double();
+    config.body_z_offset = get_parameter("body_z_offset").as_double();
     return config;
   }
 
@@ -522,39 +687,100 @@ private:
       last_sport_mode_vel_.vz, last_sport_mode_vel_.wz);
   }
 
-  void onObstacleCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+  void onObstacleCloud(
+    const sensor_msgs::msg::PointCloud2::SharedPtr msg,
+    const std::string & topic_name)
   {
-    std::vector<Eigen::Vector3d> points;
-    points.reserve(static_cast<std::size_t>(msg->width) * static_cast<std::size_t>(msg->height));
-
     const std::string map_frame = get_parameter("map_frame").as_string();
-    const std::string cloud_frame = msg->header.frame_id.empty() ? map_frame : msg->header.frame_id;
-    bool use_transform = cloud_frame != map_frame;
+    Pose3D current_pose;
+    if (!lookupCurrentPose(current_pose)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Skipped point cloud obstacle update because current robot pose is unavailable.");
+      return;
+    }
+
+    std::string frame_mode = toLower(trim(get_parameter("pointcloud_frame_mode").as_string()));
+    if (frame_mode != "auto" && frame_mode != "map" && frame_mode != "base_link") {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 3000,
+        "Unknown pointcloud_frame_mode=%s. Valid values: auto, map, base_link. Using auto.",
+        frame_mode.c_str());
+      frame_mode = "auto";
+    }
+
+    std::vector<std::string> map_aliases =
+      splitFrameList(get_parameter("pointcloud_map_frame_aliases").as_string());
+    if (!containsFrameName(map_aliases, map_frame)) {
+      map_aliases.push_back(map_frame);
+    }
+
+    const std::string base_frame =
+      active_base_frame_.empty() ? get_parameter("base_frame").as_string() : active_base_frame_;
+    std::vector<std::string> base_aliases =
+      splitFrameList(get_parameter("pointcloud_base_frame_aliases").as_string());
+    if (!containsFrameName(base_aliases, base_frame)) {
+      base_aliases.push_back(base_frame);
+    }
+    const std::string configured_base_frame = get_parameter("base_frame").as_string();
+    if (!containsFrameName(base_aliases, configured_base_frame)) {
+      base_aliases.push_back(configured_base_frame);
+    }
+
+    const std::string raw_cloud_frame = msg->header.frame_id.empty() ? map_frame : msg->header.frame_id;
+    const std::string lookup_cloud_frame = remapFrameName(
+      raw_cloud_frame, get_parameter("pointcloud_frame_remaps").as_string());
+    const bool cloud_is_map_alias = containsFrameName(map_aliases, lookup_cloud_frame);
+    const bool cloud_is_base_alias = containsFrameName(base_aliases, lookup_cloud_frame);
+    bool target_is_base = false;
+    std::string target_frame = map_frame;
+    bool use_transform = false;
+    std::string interpreted_frame = raw_cloud_frame;
+
+    if (frame_mode == "base_link" || (frame_mode == "auto" && cloud_is_base_alias)) {
+      target_is_base = true;
+      target_frame = base_frame;
+      use_transform = !(lookup_cloud_frame == target_frame || cloud_is_base_alias);
+      interpreted_frame = cloud_is_base_alias ? target_frame : lookup_cloud_frame;
+    } else {
+      target_is_base = false;
+      target_frame = map_frame;
+      use_transform = !(lookup_cloud_frame == target_frame || cloud_is_map_alias);
+      interpreted_frame = cloud_is_map_alias ? target_frame : lookup_cloud_frame;
+    }
+
     geometry_msgs::msg::TransformStamped transform;
     if (use_transform) {
       try {
         transform = tf_buffer_.lookupTransform(
-          map_frame, cloud_frame, tf2::TimePointZero,
+          target_frame, lookup_cloud_frame, tf2::TimePointZero,
           tf2::durationFromSec(get_parameter("tf_timeout").as_double()));
       } catch (const tf2::TransformException & ex) {
         RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 2000,
-          "Failed to transform local obstacle cloud %s -> %s: %s",
-          cloud_frame.c_str(), map_frame.c_str(), ex.what());
+          "Failed to transform point cloud topic=%s frame=%s lookup_frame=%s -> %s: %s. "
+          "If this is FAST-LIO world cloud, add the frame to pointcloud_map_frame_aliases; "
+          "if the message frame uses a non-TF alias, add it to pointcloud_frame_remaps.",
+          topic_name.c_str(), raw_cloud_frame.c_str(), lookup_cloud_frame.c_str(),
+          target_frame.c_str(), ex.what());
         return;
       }
     }
 
     tf2::Quaternion q(0.0, 0.0, 0.0, 1.0);
-    tf2::Vector3 t(0.0, 0.0, 0.0);
+    tf2::Vector3 translation(0.0, 0.0, 0.0);
     if (use_transform) {
       tf2::fromMsg(transform.transform.rotation, q);
-      t = tf2::Vector3(
+      translation = tf2::Vector3(
         transform.transform.translation.x,
         transform.transform.translation.y,
         transform.transform.translation.z);
     }
     const tf2::Matrix3x3 rotation(q);
+
+    std::vector<Eigen::Vector3d> transformed_points;
+    transformed_points.reserve(
+      static_cast<std::size_t>(msg->width) * static_cast<std::size_t>(msg->height));
 
     try {
       sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
@@ -565,25 +791,43 @@ private:
           continue;
         }
 
+        Eigen::Vector3d point(*iter_x, *iter_y, *iter_z);
         if (use_transform) {
-          const tf2::Vector3 p(*iter_x, *iter_y, *iter_z);
-          const tf2::Vector3 out = rotation * p + t;
-          points.emplace_back(out.x(), out.y(), out.z());
-        } else {
-          points.emplace_back(*iter_x, *iter_y, *iter_z);
+          const tf2::Vector3 in(point.x(), point.y(), point.z());
+          const tf2::Vector3 out = rotation * in + translation;
+          point = Eigen::Vector3d(out.x(), out.y(), out.z());
         }
+        transformed_points.push_back(point);
       }
     } catch (const std::exception & ex) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000,
-        "Failed to read local obstacle cloud fields x/y/z: %s", ex.what());
+        "Failed to read point cloud fields x/y/z: %s", ex.what());
       return;
     }
 
-    planner_.setObstacleCloud(points);
+    DynamicObstacleLayer::Config layer_config = readDynamicObstacleConfig();
+    layer_config.pointcloud_frame_mode = target_is_base ? "base_link" : "map";
+    dynamic_obstacle_layer_.setConfig(layer_config);
+    dynamic_obstacle_layer_.setCurrentPose(current_pose);
+    const auto transformed_msg = makePointCloudMsg(
+      transformed_points, target_frame, msg->header.stamp);
+    dynamic_obstacle_layer_.updateFromPointCloud(transformed_msg);
+    planner_.setObstacleCloud(dynamic_obstacle_layer_.obstaclePoints());
+    publishDynamicObstacleCloud();
+
     received_obstacle_cloud_ = true;
+    last_obstacle_cloud_topic_ = topic_name;
+    last_obstacle_cloud_frame_ = raw_cloud_frame;
+    last_obstacle_cloud_interpreted_frame_ = interpreted_frame;
+    last_obstacle_cloud_raw_points_ = transformed_points.size();
     RCLCPP_INFO_THROTTLE(
-      get_logger(), *get_clock(), 3000, "Updated local obstacle cloud: %zu points", points.size());
+      get_logger(), *get_clock(), 3000,
+      "Updated dynamic obstacle cloud: topic=%s frame=%s lookup_frame=%s interpreted_as=%s raw=%zu filtered=%zu target_frame=%s mode=%s",
+      topic_name.c_str(), raw_cloud_frame.c_str(), lookup_cloud_frame.c_str(),
+      interpreted_frame.c_str(),
+      transformed_points.size(), dynamic_obstacle_layer_.obstaclePoints().size(),
+      target_frame.c_str(), frame_mode.c_str());
   }
 
   void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg)
@@ -649,6 +893,7 @@ private:
       return;
     }
 
+    expireDynamicObstacleCloudIfNeeded();
     if (!isObstacleSourceReady()) {
       publishZeroCmd();
       return;
@@ -804,15 +1049,31 @@ private:
     return last_cmd_vel_;
   }
 
+  void expireDynamicObstacleCloudIfNeeded()
+  {
+    if (!dynamic_obstacle_layer_.isExpired()) {
+      return;
+    }
+
+    const double age = dynamic_obstacle_layer_.ageSeconds();
+    dynamic_obstacle_layer_.clear();
+    planner_.clearObstacleCloud();
+    publishDynamicObstacleCloud();
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "Dynamic obstacle cloud expired after %.2f s. Cleared point cloud obstacle cache.",
+      age);
+  }
+
   bool isObstacleSourceReady()
   {
     const auto & config = planner_.getConfig();
-    const bool wants_octomap = config.obstacle_source == "octomap" || config.obstacle_source == "both";
-    const bool wants_pointcloud = config.obstacle_source == "pointcloud" || config.obstacle_source == "both";
+    const std::string obstacle_source = toLower(trim(config.obstacle_source));
+    const bool wants_pointcloud = obstacle_source == "pointcloud" || obstacle_source == "both";
 
-    if (config.obstacle_source != "octomap" &&
-      config.obstacle_source != "pointcloud" &&
-      config.obstacle_source != "both")
+    if (obstacle_source != "octomap" &&
+      obstacle_source != "pointcloud" &&
+      obstacle_source != "both")
     {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 3000,
@@ -821,18 +1082,72 @@ private:
       return false;
     }
 
-    if (wants_octomap && planner_.hasOctomap()) {
+    const bool octomap_ready = planner_.hasOctomap();
+    const bool pointcloud_fresh = dynamic_obstacle_layer_.isFresh();
+    if (wants_pointcloud && !pointcloud_fresh) {
+      planner_.clearObstacleCloud();
+      const double age = dynamic_obstacle_layer_.ageSeconds();
+      const std::string age_text = std::isfinite(age) ? std::to_string(age) : "inf";
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 8000,
+        "Point cloud obstacle source is not fresh: topics=%s received=%s age=%s timeout=%.2f s.",
+        pointcloud_topic_names_.empty() ? "(none)" : joinList(pointcloud_topic_names_).c_str(),
+        received_obstacle_cloud_ ? "true" : "false",
+        age_text.c_str(),
+        get_parameter("pointcloud_timeout").as_double());
+    }
+
+    if (obstacle_source == "octomap") {
+      if (octomap_ready) {
+        return true;
+      }
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 3000,
+        "OctoMap obstacle source is not ready. Holding zero velocity.");
+      return false;
+    }
+
+    if (obstacle_source == "pointcloud") {
+      if (pointcloud_fresh) {
+        return true;
+      }
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 3000,
+        "PointCloud obstacle_source requires a fresh cloud. Holding zero velocity.");
+      return false;
+    }
+
+    if (octomap_ready && pointcloud_fresh) {
       return true;
     }
-    if (wants_pointcloud && received_obstacle_cloud_) {
+    if (pointcloud_fresh) {
+      return true;
+    }
+    if (octomap_ready && get_parameter("allow_planning_without_fresh_cloud").as_bool()) {
+      RCLCPP_INFO_THROTTLE(
+        get_logger(), *get_clock(), 10000,
+        "Planning with OctoMap only because the dynamic point cloud is not fresh.");
       return true;
     }
 
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), 3000,
       "Obstacle source %s is not ready. Holding zero velocity.",
-      config.obstacle_source.c_str());
+      obstacle_source.c_str());
     return false;
+  }
+
+  void publishDynamicObstacleCloud()
+  {
+    if (!dynamic_obstacle_cloud_pub_) {
+      return;
+    }
+
+    const auto msg = makePointCloudMsg(
+      dynamic_obstacle_layer_.obstaclePoints(),
+      get_parameter("map_frame").as_string(),
+      now());
+    dynamic_obstacle_cloud_pub_->publish(msg);
   }
 
   void prunePath(const Pose3D & current_pose)
@@ -937,6 +1252,29 @@ private:
     ss << "best_score=";
     if (std::isfinite(debug.best_score)) {
       ss << debug.best_score;
+    } else {
+      ss << "none";
+    }
+    ss << '\n';
+    ss << "dynamic_cloud_fresh=" << (dynamic_obstacle_layer_.isFresh() ? "true" : "false") << '\n';
+    ss << "dynamic_cloud_age=";
+    if (std::isfinite(dynamic_obstacle_layer_.ageSeconds())) {
+      ss << dynamic_obstacle_layer_.ageSeconds();
+    } else {
+      ss << "none";
+    }
+    ss << '\n';
+    ss << "dynamic_cloud_points=" << dynamic_obstacle_layer_.obstaclePoints().size() << '\n';
+    ss << "dynamic_cloud_topic=" << (last_obstacle_cloud_topic_.empty() ? "none" : last_obstacle_cloud_topic_) << '\n';
+    ss << "dynamic_cloud_frame=" << (last_obstacle_cloud_frame_.empty() ? "none" : last_obstacle_cloud_frame_) << '\n';
+    ss << "dynamic_cloud_interpreted_frame="
+       << (last_obstacle_cloud_interpreted_frame_.empty() ? "none" : last_obstacle_cloud_interpreted_frame_)
+       << '\n';
+    ss << "dynamic_cloud_raw_points=" << last_obstacle_cloud_raw_points_ << '\n';
+    ss << "dynamic_obstacle_speed_scale=" << debug.dynamic_obstacle_speed_scale << '\n';
+    ss << "nearest_dynamic_obstacle_distance=";
+    if (std::isfinite(debug.nearest_dynamic_obstacle_distance)) {
+      ss << debug.nearest_dynamic_obstacle_distance;
     } else {
       ss << "none";
     }
@@ -1188,6 +1526,7 @@ private:
   }
 
   DWA3DLocalPlanner planner_;
+  DynamicObstacleLayer dynamic_obstacle_layer_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
 
@@ -1195,7 +1534,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr additional_path_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sport_mode_state_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_cloud_sub_;
+  std::vector<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr> pointcloud_subs_;
   rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr octomap_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr best_traj_pub_;
@@ -1204,6 +1543,7 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr recovery_traj_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr path_corridor_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr debug_text_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr dynamic_obstacle_cloud_pub_;
   rclcpp::TimerBase::SharedPtr control_timer_;
 
   std::vector<Eigen::Vector3d> global_path_;
@@ -1219,6 +1559,11 @@ private:
   bool goal_reached_logged_{false};
   int previous_candidate_marker_count_{0};
   std::string active_base_frame_;
+  std::vector<std::string> pointcloud_topic_names_;
+  std::string last_obstacle_cloud_topic_;
+  std::string last_obstacle_cloud_frame_;
+  std::string last_obstacle_cloud_interpreted_frame_;
+  std::size_t last_obstacle_cloud_raw_points_{0};
   Pose3D last_progress_pose_;
   rclcpp::Time last_progress_stamp_{0, 0, RCL_ROS_TIME};
   rclcpp::Time no_valid_since_{0, 0, RCL_ROS_TIME};

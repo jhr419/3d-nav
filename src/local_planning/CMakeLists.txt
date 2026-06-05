@@ -24,6 +24,7 @@ find_package(unitree_go REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
 add_library(dwa_3d_local_planner
+  src/dynamic_obstacle_layer.cpp
   src/dwa_3d_local_planner.cpp
 )
 target_include_directories(dwa_3d_local_planner
@@ -34,6 +35,9 @@ target_include_directories(dwa_3d_local_planner
 )
 target_link_libraries(dwa_3d_local_planner
   octomap
+)
+ament_target_dependencies(dwa_3d_local_planner
+  sensor_msgs
 )
 
 add_executable(local_planner_node
