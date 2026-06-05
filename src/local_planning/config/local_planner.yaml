@@ -1,0 +1,70 @@
+local_planner_node:
+  ros__parameters:
+    map_frame: "map"
+    base_frame: "base_link"
+    base_frame_candidates: "base_link,odin1_base_link,base_footprint"
+
+    global_path_topic: "/planned_path"
+    additional_global_path_topic: "/global_path_3d"
+    cmd_vel_topic: "/cmd_vel"
+    odom_topic: "/odom"
+    sport_mode_state_topic: "/sportmodestate"
+    velocity_source: "sport_mode"  # auto / sport_mode / odom / last_cmd / zero
+    local_obstacle_cloud_topic: "/local_obstacle_cloud"
+    octomap_topic: "/octomap"
+
+    local_trajectory_marker_topic: "/local_trajectory_marker"
+    candidate_trajectories_topic: "/dwa_candidate_trajectories"
+    local_goal_marker_topic: "/local_goal_marker"
+
+    robot_model: "ground_omni"   # ground_omni / ground_diff / aerial_3d
+
+    obstacle_source: "octomap"   # octomap / pointcloud / both
+    octomap_file: "/home/jhr/3dnav_ws/maps/result_cleaned.bt"
+    unknown_as_occupied: false
+    robot_radius: 0.2
+    robot_height: 0.25
+    collision_z_offset: 0.10
+    safety_margin: 0.05
+
+    control_frequency: 10.0
+    sim_time: 1.2
+    sim_dt: 0.2
+
+    max_vx: 0.6
+    min_vx: -0.2
+    max_vy: 0.4
+    min_vy: -0.4
+    max_wz: 1.0
+    min_wz: -1.0
+
+    max_acc_vx: 0.5
+    max_acc_vy: 0.5
+    max_acc_wz: 1.5
+
+    vx_samples: 5
+    vy_samples: 5
+    wz_samples: 7
+
+    local_goal_lookahead: 1.5
+    goal_reached_tolerance: 0.3
+    path_prune_distance: 0.5
+
+    weight_path_distance: 1.0
+    weight_goal_distance: 1.2
+    weight_obstacle_distance: 1.5
+    weight_heading: 0.5
+    weight_velocity: 0.2
+    weight_smoothness: 0.2
+
+    obstacle_check_resolution: 0.2
+    min_obstacle_distance: 0.10
+    obstacle_score_distance: 1.0
+    stop_on_no_valid_trajectory: true
+
+    publish_candidate_trajectories: true
+    candidate_marker_stride: 2
+    marker_lifetime: 0.4
+    tf_timeout: 0.05
+    odom_timeout: 0.5
+    sport_mode_timeout: 0.5

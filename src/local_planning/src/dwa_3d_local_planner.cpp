@@ -1,0 +1,518 @@
+#include "local_planning/dwa_3d_local_planner.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+namespace local_planning
+{
+namespace
+{
+
+double clamp(double value, double min_value, double max_value)
+{
+  return std::max(min_value, std::min(value, max_value));
+}
+
+double normalizeAngle(double angle)
+{
+  while (angle > M_PI) {
+    angle -= 2.0 * M_PI;
+  }
+  while (angle < -M_PI) {
+    angle += 2.0 * M_PI;
+  }
+  return angle;
+}
+
+Eigen::Vector3d posePosition(const Pose3D & pose)
+{
+  return Eigen::Vector3d(pose.x, pose.y, pose.z);
+}
+
+double distance3D(const Eigen::Vector3d & a, const Eigen::Vector3d & b)
+{
+  return (a - b).norm();
+}
+
+double footprintObstacleDistance(
+  const Pose3D & pose,
+  const Eigen::Vector3d & obstacle,
+  double z_offset,
+  double height)
+{
+  const double xy_distance = std::hypot(obstacle.x() - pose.x, obstacle.y() - pose.y);
+  const double bottom_z = pose.z + z_offset;
+  const double top_z = bottom_z + height;
+  double z_distance = 0.0;
+  if (obstacle.z() < bottom_z) {
+    z_distance = bottom_z - obstacle.z();
+  } else if (obstacle.z() > top_z) {
+    z_distance = obstacle.z() - top_z;
+  }
+  return std::hypot(xy_distance, z_distance);
+}
+
+bool insideMetricBounds(const octomap::OcTree & tree, double x, double y, double z)
+{
+  double min_x = 0.0;
+  double min_y = 0.0;
+  double min_z = 0.0;
+  double max_x = 0.0;
+  double max_y = 0.0;
+  double max_z = 0.0;
+  tree.getMetricMin(min_x, min_y, min_z);
+  tree.getMetricMax(max_x, max_y, max_z);
+  return x >= min_x && x <= max_x &&
+         y >= min_y && y <= max_y &&
+         z >= min_z && z <= max_z;
+}
+
+}  // namespace
+
+DWA3DLocalPlanner::DWA3DLocalPlanner()
+: DWA3DLocalPlanner(Config())
+{
+}
+
+DWA3DLocalPlanner::DWA3DLocalPlanner(const Config & config)
+: config_(config)
+{
+}
+
+void DWA3DLocalPlanner::setConfig(const Config & config)
+{
+  config_ = config;
+}
+
+const DWA3DLocalPlanner::Config & DWA3DLocalPlanner::getConfig() const
+{
+  return config_;
+}
+
+void DWA3DLocalPlanner::setOctomap(std::shared_ptr<const octomap::OcTree> octree)
+{
+  octree_ = std::move(octree);
+}
+
+bool DWA3DLocalPlanner::hasOctomap() const
+{
+  return static_cast<bool>(octree_);
+}
+
+void DWA3DLocalPlanner::setObstacleCloud(const std::vector<Eigen::Vector3d> & points)
+{
+  obstacle_cloud_ = points;
+}
+
+void DWA3DLocalPlanner::clearObstacleCloud()
+{
+  obstacle_cloud_.clear();
+}
+
+bool DWA3DLocalPlanner::hasObstacleCloud() const
+{
+  return !obstacle_cloud_.empty();
+}
+
+bool DWA3DLocalPlanner::computeVelocityCommand(
+  const Pose3D & current_pose,
+  const Velocity3D & current_vel,
+  const std::vector<Eigen::Vector3d> & global_path,
+  Velocity3D & cmd_vel,
+  Trajectory3D & best_traj)
+{
+  last_candidates_.clear();
+  if (global_path.empty()) {
+    return false;
+  }
+
+  const Eigen::Vector3d local_goal = selectLocalGoal(current_pose, global_path);
+  last_local_goal_ = local_goal;
+
+  const double control_dt = 1.0 / std::max(1.0, config_.control_frequency);
+  double vx_min = std::max(config_.min_vx, current_vel.vx - config_.max_acc_vx * control_dt);
+  double vx_max = std::min(config_.max_vx, current_vel.vx + config_.max_acc_vx * control_dt);
+  double vy_min = std::max(config_.min_vy, current_vel.vy - config_.max_acc_vy * control_dt);
+  double vy_max = std::min(config_.max_vy, current_vel.vy + config_.max_acc_vy * control_dt);
+  const double wz_min = std::max(config_.min_wz, current_vel.wz - config_.max_acc_wz * control_dt);
+  const double wz_max = std::min(config_.max_wz, current_vel.wz + config_.max_acc_wz * control_dt);
+
+  int vy_samples = config_.vy_samples;
+  if (config_.robot_model == "ground_diff") {
+    vy_min = 0.0;
+    vy_max = 0.0;
+    vy_samples = 1;
+  }
+
+  const auto vx_values = sampleRange(vx_min, vx_max, config_.vx_samples);
+  const auto vy_values = sampleRange(vy_min, vy_max, vy_samples);
+  const auto wz_values = sampleRange(wz_min, wz_max, config_.wz_samples);
+
+  bool found_valid = false;
+  double best_score = -std::numeric_limits<double>::infinity();
+
+  for (const double vx : vx_values) {
+    for (const double vy : vy_values) {
+      for (const double wz : wz_values) {
+        Velocity3D sampled_cmd;
+        sampled_cmd.vx = vx;
+        sampled_cmd.vy = vy;
+        sampled_cmd.wz = wz;
+
+        Trajectory3D traj = simulateTrajectory(current_pose, sampled_cmd);
+        double min_obstacle_distance = std::numeric_limits<double>::infinity();
+        traj.collision_free = evaluateCollisionAndDistance(traj.poses, min_obstacle_distance);
+        traj.min_obstacle_distance = min_obstacle_distance;
+        if (traj.collision_free) {
+          traj.score = scoreTrajectory(traj, current_pose, global_path, local_goal);
+          if (!found_valid || traj.score > best_score) {
+            found_valid = true;
+            best_score = traj.score;
+            best_traj = traj;
+          }
+        } else {
+          traj.score = -1.0;
+        }
+        last_candidates_.push_back(std::move(traj));
+      }
+    }
+  }
+
+  if (!found_valid) {
+    return false;
+  }
+
+  cmd_vel = best_traj.cmd;
+  last_cmd_ = cmd_vel;
+  return true;
+}
+
+bool DWA3DLocalPlanner::isTrajectoryCollisionFree(const std::vector<Pose3D> & traj) const
+{
+  double min_obstacle_distance = std::numeric_limits<double>::infinity();
+  return evaluateCollisionAndDistance(traj, min_obstacle_distance);
+}
+
+double DWA3DLocalPlanner::getMinObstacleDistance(const std::vector<Pose3D> & traj) const
+{
+  double min_obstacle_distance = std::numeric_limits<double>::infinity();
+  evaluateCollisionAndDistance(traj, min_obstacle_distance);
+  return min_obstacle_distance;
+}
+
+const std::vector<Trajectory3D> & DWA3DLocalPlanner::getLastCandidateTrajectories() const
+{
+  return last_candidates_;
+}
+
+const Eigen::Vector3d & DWA3DLocalPlanner::getLastLocalGoal() const
+{
+  return last_local_goal_;
+}
+
+std::vector<double> DWA3DLocalPlanner::sampleRange(
+  double min_value,
+  double max_value,
+  int samples) const
+{
+  if (max_value < min_value) {
+    std::swap(min_value, max_value);
+  }
+
+  if (samples <= 1 || std::abs(max_value - min_value) < 1.0e-9) {
+    return {0.5 * (min_value + max_value)};
+  }
+
+  std::vector<double> values;
+  values.reserve(static_cast<std::size_t>(samples));
+  const double step = (max_value - min_value) / static_cast<double>(samples - 1);
+  for (int i = 0; i < samples; ++i) {
+    values.push_back(min_value + static_cast<double>(i) * step);
+  }
+  return values;
+}
+
+Trajectory3D DWA3DLocalPlanner::simulateTrajectory(const Pose3D & start, const Velocity3D & cmd) const
+{
+  Trajectory3D traj;
+  traj.cmd = cmd;
+
+  Pose3D pose = start;
+  traj.poses.push_back(pose);
+
+  const double sim_dt = std::max(0.01, config_.sim_dt);
+  const int steps = std::max(1, static_cast<int>(std::ceil(config_.sim_time / sim_dt)));
+  for (int i = 0; i < steps; ++i) {
+    const double cos_yaw = std::cos(pose.yaw);
+    const double sin_yaw = std::sin(pose.yaw);
+    pose.x += (cmd.vx * cos_yaw - cmd.vy * sin_yaw) * sim_dt;
+    pose.y += (cmd.vx * sin_yaw + cmd.vy * cos_yaw) * sim_dt;
+    if (config_.robot_model == "aerial_3d") {
+      pose.z += cmd.vz * sim_dt;
+    }
+    pose.yaw = normalizeAngle(pose.yaw + cmd.wz * sim_dt);
+    traj.poses.push_back(pose);
+  }
+
+  return traj;
+}
+
+Eigen::Vector3d DWA3DLocalPlanner::selectLocalGoal(
+  const Pose3D & current_pose,
+  const std::vector<Eigen::Vector3d> & global_path) const
+{
+  if (global_path.empty()) {
+    return posePosition(current_pose);
+  }
+
+  const Eigen::Vector3d current = posePosition(current_pose);
+  std::size_t nearest_index = 0;
+  double nearest_dist = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < global_path.size(); ++i) {
+    const double dist = distance3D(current, global_path[i]);
+    if (dist < nearest_dist) {
+      nearest_dist = dist;
+      nearest_index = i;
+    }
+  }
+
+  const double lookahead = std::max(0.0, config_.local_goal_lookahead);
+  double accumulated = 0.0;
+  for (std::size_t i = nearest_index + 1; i < global_path.size(); ++i) {
+    accumulated += distance3D(global_path[i - 1], global_path[i]);
+    if (accumulated >= lookahead) {
+      return global_path[i];
+    }
+  }
+  return global_path.back();
+}
+
+double DWA3DLocalPlanner::distanceToPath(
+  const Eigen::Vector3d & point,
+  const std::vector<Eigen::Vector3d> & global_path) const
+{
+  if (global_path.empty()) {
+    return std::numeric_limits<double>::infinity();
+  }
+
+  double nearest_dist = std::numeric_limits<double>::infinity();
+  for (const auto & path_point : global_path) {
+    nearest_dist = std::min(nearest_dist, distance3D(point, path_point));
+  }
+  return nearest_dist;
+}
+
+double DWA3DLocalPlanner::scoreTrajectory(
+  const Trajectory3D & traj,
+  const Pose3D & current_pose,
+  const std::vector<Eigen::Vector3d> & global_path,
+  const Eigen::Vector3d & local_goal) const
+{
+  if (traj.poses.empty()) {
+    return -std::numeric_limits<double>::infinity();
+  }
+
+  const Pose3D & end_pose = traj.poses.back();
+  const Eigen::Vector3d end = posePosition(end_pose);
+
+  const double path_distance = distanceToPath(end, global_path);
+  const double path_score = 1.0 / (1.0 + path_distance);
+
+  const double goal_distance = distance3D(end, local_goal);
+  const double goal_score = 1.0 / (1.0 + goal_distance);
+
+  const double min_obstacle_distance = traj.min_obstacle_distance;
+  const double collision_threshold = collisionDistanceThreshold();
+  double obstacle_score = 1.0;
+  if (std::isfinite(min_obstacle_distance)) {
+    const double score_span =
+      std::max(1.0e-3, config_.obstacle_score_distance - collision_threshold);
+    obstacle_score = clamp(
+      (min_obstacle_distance - collision_threshold) / score_span, 0.0, 1.0);
+  }
+
+  const double target_yaw = std::atan2(local_goal.y() - end_pose.y, local_goal.x() - end_pose.x);
+  const double heading_error = normalizeAngle(target_yaw - end_pose.yaw);
+  const double heading_score = 0.5 * (std::cos(heading_error) + 1.0);
+
+  const double speed = std::hypot(traj.cmd.vx, traj.cmd.vy);
+  const double max_speed = std::max(1.0e-3, maxPlanarSpeed());
+  double speed_scale = 1.0;
+  if (!global_path.empty()) {
+    const double final_goal_distance = distance3D(posePosition(current_pose), global_path.back());
+    speed_scale = clamp(
+      final_goal_distance / std::max(1.0e-3, config_.local_goal_lookahead), 0.15, 1.0);
+  }
+  const double desired_speed = max_speed * speed_scale;
+  const double velocity_score = 1.0 - clamp(std::abs(speed - desired_speed) / max_speed, 0.0, 1.0);
+
+  const double cmd_delta =
+    std::hypot(traj.cmd.vx - last_cmd_.vx, traj.cmd.vy - last_cmd_.vy) +
+    std::abs(traj.cmd.wz - last_cmd_.wz);
+  const double smoothness_norm = max_speed + std::max(std::abs(config_.min_wz), std::abs(config_.max_wz));
+  const double smoothness_score =
+    1.0 - clamp(cmd_delta / std::max(1.0e-3, smoothness_norm), 0.0, 1.0);
+
+  return config_.weight_path_distance * path_score +
+         config_.weight_goal_distance * goal_score +
+         config_.weight_obstacle_distance * obstacle_score +
+         config_.weight_heading * heading_score +
+         config_.weight_velocity * velocity_score +
+         config_.weight_smoothness * smoothness_score;
+}
+
+bool DWA3DLocalPlanner::evaluateCollisionAndDistance(
+  const std::vector<Pose3D> & traj,
+  double & min_obstacle_distance) const
+{
+  min_obstacle_distance = std::numeric_limits<double>::infinity();
+  const double collision_threshold = collisionDistanceThreshold();
+
+  for (const auto & pose : traj) {
+    if (usePointCloud()) {
+      const double cloud_distance = minPointCloudDistance(pose);
+      min_obstacle_distance = std::min(min_obstacle_distance, cloud_distance);
+      if (cloud_distance <= collision_threshold) {
+        return false;
+      }
+    }
+
+    if (useOctomap() && octree_) {
+      min_obstacle_distance = std::min(min_obstacle_distance, minOctomapDistance(pose));
+      if (min_obstacle_distance <= collision_threshold) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+double DWA3DLocalPlanner::minPointCloudDistance(const Pose3D & pose) const
+{
+  double min_distance = std::numeric_limits<double>::infinity();
+  const double bottom_z = pose.z + config_.collision_z_offset;
+  const double top_z = bottom_z + std::max(0.0, config_.robot_height);
+
+  for (const auto & point : obstacle_cloud_) {
+    if (point.z() < bottom_z - config_.obstacle_score_distance ||
+      point.z() > top_z + config_.obstacle_score_distance)
+    {
+      continue;
+    }
+    min_distance = std::min(
+      min_distance,
+      footprintObstacleDistance(pose, point, config_.collision_z_offset, config_.robot_height));
+  }
+
+  return min_distance;
+}
+
+double DWA3DLocalPlanner::minOctomapDistance(const Pose3D & pose) const
+{
+  if (!octree_) {
+    return std::numeric_limits<double>::infinity();
+  }
+
+  const double query_radius = std::max(config_.obstacle_score_distance, collisionDistanceThreshold());
+  const double bottom_z = pose.z + config_.collision_z_offset;
+  const double top_z = bottom_z + std::max(0.0, config_.robot_height);
+  const octomap::point3d min_point(
+    static_cast<float>(pose.x - query_radius),
+    static_cast<float>(pose.y - query_radius),
+    static_cast<float>(bottom_z - query_radius));
+  const octomap::point3d max_point(
+    static_cast<float>(pose.x + query_radius),
+    static_cast<float>(pose.y + query_radius),
+    static_cast<float>(top_z + query_radius));
+
+  if (config_.unknown_as_occupied &&
+    (!insideMetricBounds(*octree_, min_point.x(), min_point.y(), min_point.z()) ||
+    !insideMetricBounds(*octree_, max_point.x(), max_point.y(), max_point.z())))
+  {
+    return 0.0;
+  }
+
+  double min_distance = std::numeric_limits<double>::infinity();
+  for (auto it = octree_->begin_leafs_bbx(min_point, max_point); it != octree_->end_leafs_bbx(); ++it) {
+    if (!octree_->isNodeOccupied(*it)) {
+      continue;
+    }
+    min_distance = std::min(
+      min_distance,
+      footprintObstacleDistance(
+        pose,
+        Eigen::Vector3d(it.getX(), it.getY(), it.getZ()),
+        config_.collision_z_offset,
+        config_.robot_height));
+  }
+
+  return min_distance;
+}
+
+bool DWA3DLocalPlanner::octomapFootprintCollision(const Pose3D & pose) const
+{
+  if (!octree_) {
+    return false;
+  }
+
+  const double radius = collisionDistanceThreshold();
+  const double resolution = std::max(
+    0.02,
+    config_.obstacle_check_resolution > 0.0 ?
+    config_.obstacle_check_resolution : octree_->getResolution());
+  const double height = std::max(0.0, config_.robot_height);
+
+  for (double dz = 0.0; dz <= height + 1.0e-9; dz += resolution) {
+    for (double dx = -radius; dx <= radius + 1.0e-9; dx += resolution) {
+      for (double dy = -radius; dy <= radius + 1.0e-9; dy += resolution) {
+        if (dx * dx + dy * dy > radius * radius) {
+          continue;
+        }
+
+        const double x = pose.x + dx;
+        const double y = pose.y + dy;
+        const double z = pose.z + dz;
+        const auto * node = octree_->search(x, y, z);
+        if (node && octree_->isNodeOccupied(node)) {
+          return true;
+        }
+        if (!node && config_.unknown_as_occupied && !insideMetricBounds(*octree_, x, y, z)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+bool DWA3DLocalPlanner::useOctomap() const
+{
+  return config_.obstacle_source == "octomap" || config_.obstacle_source == "both";
+}
+
+bool DWA3DLocalPlanner::usePointCloud() const
+{
+  return (config_.obstacle_source == "pointcloud" || config_.obstacle_source == "both") &&
+         !obstacle_cloud_.empty();
+}
+
+double DWA3DLocalPlanner::collisionDistanceThreshold() const
+{
+  return std::max(
+    config_.robot_radius + config_.safety_margin,
+    config_.min_obstacle_distance);
+}
+
+double DWA3DLocalPlanner::maxPlanarSpeed() const
+{
+  const double max_abs_vx = std::max(std::abs(config_.min_vx), std::abs(config_.max_vx));
+  const double max_abs_vy =
+    config_.robot_model == "ground_diff" ? 0.0 :
+    std::max(std::abs(config_.min_vy), std::abs(config_.max_vy));
+  return std::hypot(max_abs_vx, max_abs_vy);
+}
+
+}  // namespace local_planning

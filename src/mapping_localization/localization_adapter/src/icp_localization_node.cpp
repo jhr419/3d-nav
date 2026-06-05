@@ -116,6 +116,7 @@ public:
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     publish_tf_ = declare_parameter<bool>("publish_tf", true);
     publish_base_tf_ = declare_parameter<bool>("publish_base_tf", true);
+    odom_coincident_with_base_ = declare_parameter<bool>("odom_coincident_with_base", false);
     publish_map_cloud_ = declare_parameter<bool>("publish_map_cloud", true);
 
     min_range_ = declare_parameter<double>("min_range", 0.5);
@@ -220,6 +221,13 @@ public:
       get_logger(),
       "ICP localization waiting for odom=%s scan=%s initialpose=%s",
       odom_topic_.c_str(), scan_topic_.c_str(), initialpose_topic_.c_str());
+    RCLCPP_INFO(
+      get_logger(),
+      "Publishing TF %s -> %s -> %s, odom_coincident_with_base=%s",
+      map_frame_.c_str(),
+      odom_frame_.c_str(),
+      base_frame_.c_str(),
+      odom_coincident_with_base_ ? "true" : "false");
     RCLCPP_INFO(
       get_logger(),
       "Localization reset service ready: %s, FAST-LIO reset target: %s",
@@ -486,7 +494,7 @@ private:
       transform.header.stamp = stamp;
       transform.header.frame_id = map_frame_;
       transform.child_frame_id = odom_frame_;
-      const auto pose = affineToPose(map_to_odom_);
+      const auto pose = affineToPose(odom_coincident_with_base_ ? map_to_base : map_to_odom_);
       transform.transform.translation.x = pose.position.x;
       transform.transform.translation.y = pose.position.y;
       transform.transform.translation.z = pose.position.z;
@@ -499,7 +507,9 @@ private:
       transform.header.stamp = stamp;
       transform.header.frame_id = odom_frame_;
       transform.child_frame_id = base_frame_;
-      const auto pose = affineToPose(latest_odom_to_base_);
+      const auto odom_to_base =
+        odom_coincident_with_base_ ? Eigen::Affine3d::Identity() : latest_odom_to_base_;
+      const auto pose = affineToPose(odom_to_base);
       transform.transform.translation.x = pose.position.x;
       transform.transform.translation.y = pose.position.y;
       transform.transform.translation.z = pose.position.z;
@@ -564,6 +574,7 @@ private:
   std::string base_frame_;
   bool publish_tf_ = true;
   bool publish_base_tf_ = true;
+  bool odom_coincident_with_base_ = false;
   bool publish_map_cloud_ = true;
   bool use_initial_pose_param_ = false;
 

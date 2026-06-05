@@ -1,0 +1,17 @@
+twist_bridge_node:
+  ros__parameters:
+    cmd_vel_topic: "/cmd_vel"
+    request_topic: "/api/sport/request"
+
+    # Unitree Move command = cmd_vel * scale, then clamped by max_*.
+    linear_x_scale: 1.4
+    linear_y_scale: 1.4
+    angular_z_scale: 1.2
+
+    max_linear_x: 0.7
+    max_linear_y: 0.7
+    max_angular_z: 0.60
+
+    linear_deadband: 0.02
+    angular_deadband: 0.02
+    send_stopmove_when_zero: true

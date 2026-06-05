@@ -8,6 +8,12 @@ icp_localization_node:
     # Non-ground / feature map used as the ICP registration target.
     icp_map_pcd_path: "maps/map.pcd"
 
+    # map_pcd_path: "maps/glim_office_csf_map/full_map.pcd"
+    # # Ground map shown in RViz for manual initial pose selection.
+    # visualization_map_pcd_path: "maps/glim_office_csf_map/ground_map.pcd"
+    # # Non-ground / feature map used as the ICP registration target.
+    # icp_map_pcd_path: "maps/glim_office_csf_map/non_ground_map.pcd"
+
     odom_topic: "/Odometry"
     scan_topic: "/cloud_registered_body"
     initialpose_topic: "/initialpose"
@@ -17,13 +23,15 @@ icp_localization_node:
     base_frame: "base_link"
     publish_tf: true
     publish_base_tf: true
+    # Publish map->odom as the localized base pose and keep odom->base_link identity.
+    odom_coincident_with_base: true
     publish_map_cloud: true
 
     # FAST-LIO /cloud_registered_body and /Odometry are already in FAST-LIO's
-    # IMU/body frame after preprocess.input_rotation_rpy_rad is applied.
-    # base_to_body_xyz: [-0.3, 0.0, -0.38]
-    # base_to_body_rpy: [0.034101, -0.566395, 0.0]
-    base_to_body_xyz: [0.0, 0.0, 0.0]
+    # body frame after preprocess.input_rotation_rpy_rad is applied, so only
+    # the base_link -> FAST-LIO body translation is applied here. Do not repeat
+    # the Livox mounting roll/pitch.
+    base_to_body_xyz: [-0.3, 0.0, -0.2]
     base_to_body_rpy: [0.0, 0.0, 0.0]
 
     # Set this true if you want localization to start from the pose below
