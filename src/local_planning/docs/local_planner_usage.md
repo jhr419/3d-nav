@@ -39,6 +39,9 @@ ros2 launch local_planning navigation_3d.launch.py
 | `/local_trajectory_marker` | `visualization_msgs/msg/Marker` | 当前最优局部轨迹，`LINE_STRIP`。 |
 | `/dwa_candidate_trajectories` | `visualization_msgs/msg/MarkerArray` | 候选轨迹，可用 `publish_candidate_trajectories` 关闭。 |
 | `/local_goal_marker` | `visualization_msgs/msg/Marker` | 当前 DWA 局部目标点。 |
+| `/recovery_trajectory_marker` | `visualization_msgs/msg/Marker` | DWA 无有效轨迹或卡住时尝试的安全恢复轨迹。 |
+| `/path_corridor_marker` | `visualization_msgs/msg/Marker` | 全局路径附近 unknown 放行走廊的半透明提示线。 |
+| `/dwa_debug_text` | `std_msgs/msg/String` | 输出候选轨迹统计、碰撞原因、卡住状态和 recovery 状态。 |
 
 ## 关键参数
 
@@ -61,6 +64,12 @@ src/local_planning/config/local_planner.yaml
 | `octomap_file` | 启动时预加载的 `.bt/.ot` 地图文件。 |
 | `robot_radius` / `robot_height` / `safety_margin` | 地面机器人碰撞检测圆柱体尺寸。 |
 | `collision_z_offset` | 碰撞圆柱体相对 `base_frame` 的底部 z 偏移，用于避开地面占据体素。 |
+| `use_path_z_for_collision` / `terrain_following_enabled` | 地面 DWA 仍只输出 `vx/vy/wz`，但仿真点 z 会跟随三维全局路径。 |
+| `collision_model` | 默认 `terrain_adaptive_cylinder`，按每个轨迹点的参考 z 检查机器人 body 高度。 |
+| `body_z_offset` / `ground_ignore_depth` | body 碰撞检测从参考 z 上方开始，忽略坡面/地面低体素。 |
+| `unknown_policy` / `path_corridor_radius` | 默认 `path_corridor_free`，路径走廊内 unknown 不直接当障碍。 |
+| `adaptive_lookahead_enabled` | 前方 z 变化大或机器人偏离路径时缩短局部目标 lookahead。 |
+| `recovery_enabled` / `stuck_detection_enabled` | 无有效 DWA 轨迹或持续没进展时尝试安全后退、横移或旋转。 |
 | `max_vx/min_vx/max_vy/min_vy/max_wz/min_wz` | 速度边界。 |
 | `max_acc_vx/max_acc_vy/max_acc_wz` | 动态窗口加速度约束。 |
 | `vx_samples/vy_samples/wz_samples` | 候选速度采样数量。 |
@@ -78,10 +87,21 @@ src/local_planning/config/local_planner.yaml
 /local_trajectory_marker
 /dwa_candidate_trajectories
 /local_goal_marker
+/recovery_trajectory_marker
+/path_corridor_marker
 /octomap_occupied_markers
 ```
 
-候选轨迹中，绿色半透明线表示无碰撞候选，红色半透明线表示碰撞候选；最优轨迹用青色线显示。
+候选轨迹中，绿色半透明线表示无碰撞候选，红色半透明线表示碰撞候选；最优轨迹用青色线显示，recovery 轨迹用橙色线显示。
+
+坡边缘卡住时可以同时观察：
+
+```bash
+ros2 topic echo /dwa_debug_text
+ros2 topic echo /cmd_vel
+```
+
+`/dwa_debug_text` 中的 `unknown_blocked_count`、`ground_blocked_count`、`valid_trajectories` 和 `recovery_state` 可以快速判断是 unknown 走廊、贴地体素还是恢复动作在起作用。
 
 ## 与全局规划器的接口约定
 

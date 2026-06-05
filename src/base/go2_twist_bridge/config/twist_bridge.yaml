@@ -4,8 +4,8 @@ twist_bridge_node:
     request_topic: "/api/sport/request"
 
     # Unitree Move command = cmd_vel * scale, then clamped by max_*.
-    linear_x_scale: 1.4
-    linear_y_scale: 1.4
+    linear_x_scale: 1.3
+    linear_y_scale: 1.3
     angular_z_scale: 1.2
 
     max_linear_x: 0.7

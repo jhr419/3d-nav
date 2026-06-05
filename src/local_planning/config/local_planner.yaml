@@ -2,7 +2,7 @@ local_planner_node:
   ros__parameters:
     map_frame: "map"
     base_frame: "base_link"
-    base_frame_candidates: "base_link,odin1_base_link,base_footprint"
+    base_frame_candidates: "base_link,base_footprint"
 
     global_path_topic: "/planned_path"
     additional_global_path_topic: "/global_path_3d"
@@ -16,6 +16,9 @@ local_planner_node:
     local_trajectory_marker_topic: "/local_trajectory_marker"
     candidate_trajectories_topic: "/dwa_candidate_trajectories"
     local_goal_marker_topic: "/local_goal_marker"
+    recovery_trajectory_marker_topic: "/recovery_trajectory_marker"
+    path_corridor_marker_topic: "/path_corridor_marker"
+    dwa_debug_text_topic: "/dwa_debug_text"
 
     robot_model: "ground_omni"   # ground_omni / ground_diff / aerial_3d
 
@@ -61,6 +64,46 @@ local_planner_node:
     min_obstacle_distance: 0.10
     obstacle_score_distance: 1.0
     stop_on_no_valid_trajectory: true
+
+    use_path_z_for_collision: true
+    terrain_following_enabled: true
+    z_search_radius: 0.6
+    max_allowed_z_jump: 0.35
+    slope_edge_z_tolerance: 0.45
+
+    collision_model: "terrain_adaptive_cylinder"
+    ground_clearance: 0.05
+    body_z_offset: 0.10
+    ignore_ground_below_base: true
+    ground_ignore_depth: 0.15
+    slope_edge_relaxation_enabled: true
+    slope_edge_relaxation_radius: 0.25
+
+    unknown_policy: "path_corridor_free"
+    path_corridor_radius: 0.5
+
+    adaptive_lookahead_enabled: true
+    min_local_goal_lookahead: 0.4
+    max_local_goal_lookahead: 1.8
+    z_change_slowdown_threshold: 0.25
+
+    recovery_enabled: true
+    stuck_detection_enabled: true
+    stuck_time_threshold: 2.0
+    min_progress_distance: 0.05
+    recovery_duration: 1.0
+    enable_reverse_escape: true
+    enable_lateral_escape: true
+    enable_rotate_escape: true
+
+    near_path_bonus_enabled: true
+    near_path_bonus_radius: 0.4
+    weight_path_corridor: 1.0
+    weight_z_consistency: 0.8
+    weight_progress: 1.0
+
+    debug_dwa: true
+    debug_collision: true
 
     publish_candidate_trajectories: true
     candidate_marker_stride: 2

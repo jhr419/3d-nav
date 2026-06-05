@@ -28,6 +28,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Vector3.h"
@@ -187,6 +188,15 @@ public:
     local_goal_pub_ = create_publisher<visualization_msgs::msg::Marker>(
       get_parameter("local_goal_marker_topic").as_string(),
       rclcpp::QoS(1).transient_local().reliable());
+    recovery_traj_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+      get_parameter("recovery_trajectory_marker_topic").as_string(),
+      rclcpp::QoS(1).transient_local().reliable());
+    path_corridor_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+      get_parameter("path_corridor_marker_topic").as_string(),
+      rclcpp::QoS(1).transient_local().reliable());
+    debug_text_pub_ = create_publisher<std_msgs::msg::String>(
+      get_parameter("dwa_debug_text_topic").as_string(),
+      rclcpp::QoS(10).reliable());
 
     loadOctomapFile(get_parameter("octomap_file").as_string());
 
@@ -227,6 +237,9 @@ private:
     declare_parameter<std::string>("local_trajectory_marker_topic", "/local_trajectory_marker");
     declare_parameter<std::string>("candidate_trajectories_topic", "/dwa_candidate_trajectories");
     declare_parameter<std::string>("local_goal_marker_topic", "/local_goal_marker");
+    declare_parameter<std::string>("recovery_trajectory_marker_topic", "/recovery_trajectory_marker");
+    declare_parameter<std::string>("path_corridor_marker_topic", "/path_corridor_marker");
+    declare_parameter<std::string>("dwa_debug_text_topic", "/dwa_debug_text");
     declare_parameter<std::string>("robot_model", "ground_omni");
     declare_parameter<std::string>("obstacle_source", "octomap");
     declare_parameter<std::string>("octomap_file", "/home/jhr/3dnav_ws/maps/result_cleaned.bt");
@@ -263,6 +276,39 @@ private:
     declare_parameter<double>("min_obstacle_distance", 0.25);
     declare_parameter<double>("obstacle_score_distance", 2.0);
     declare_parameter<bool>("stop_on_no_valid_trajectory", true);
+    declare_parameter<bool>("use_path_z_for_collision", true);
+    declare_parameter<bool>("terrain_following_enabled", true);
+    declare_parameter<double>("z_search_radius", 0.6);
+    declare_parameter<double>("max_allowed_z_jump", 0.35);
+    declare_parameter<double>("slope_edge_z_tolerance", 0.45);
+    declare_parameter<std::string>("collision_model", "terrain_adaptive_cylinder");
+    declare_parameter<double>("ground_clearance", 0.05);
+    declare_parameter<double>("body_z_offset", 0.10);
+    declare_parameter<bool>("ignore_ground_below_base", true);
+    declare_parameter<double>("ground_ignore_depth", 0.15);
+    declare_parameter<bool>("slope_edge_relaxation_enabled", true);
+    declare_parameter<double>("slope_edge_relaxation_radius", 0.25);
+    declare_parameter<std::string>("unknown_policy", "path_corridor_free");
+    declare_parameter<double>("path_corridor_radius", 0.5);
+    declare_parameter<bool>("adaptive_lookahead_enabled", true);
+    declare_parameter<double>("min_local_goal_lookahead", 0.4);
+    declare_parameter<double>("max_local_goal_lookahead", 1.8);
+    declare_parameter<double>("z_change_slowdown_threshold", 0.25);
+    declare_parameter<bool>("recovery_enabled", true);
+    declare_parameter<bool>("stuck_detection_enabled", true);
+    declare_parameter<double>("stuck_time_threshold", 2.0);
+    declare_parameter<double>("min_progress_distance", 0.05);
+    declare_parameter<double>("recovery_duration", 1.0);
+    declare_parameter<bool>("enable_reverse_escape", true);
+    declare_parameter<bool>("enable_lateral_escape", true);
+    declare_parameter<bool>("enable_rotate_escape", true);
+    declare_parameter<bool>("near_path_bonus_enabled", true);
+    declare_parameter<double>("near_path_bonus_radius", 0.4);
+    declare_parameter<double>("weight_path_corridor", 1.0);
+    declare_parameter<double>("weight_z_consistency", 0.8);
+    declare_parameter<double>("weight_progress", 1.0);
+    declare_parameter<bool>("debug_dwa", true);
+    declare_parameter<bool>("debug_collision", true);
     declare_parameter<bool>("publish_candidate_trajectories", true);
     declare_parameter<int>("candidate_marker_stride", 1);
     declare_parameter<double>("marker_lifetime", 0.4);
@@ -309,6 +355,42 @@ private:
     config.min_obstacle_distance = get_parameter("min_obstacle_distance").as_double();
     config.obstacle_score_distance = get_parameter("obstacle_score_distance").as_double();
     config.stop_on_no_valid_trajectory = get_parameter("stop_on_no_valid_trajectory").as_bool();
+    config.use_path_z_for_collision = get_parameter("use_path_z_for_collision").as_bool();
+    config.terrain_following_enabled = get_parameter("terrain_following_enabled").as_bool();
+    config.z_search_radius = get_parameter("z_search_radius").as_double();
+    config.max_allowed_z_jump = get_parameter("max_allowed_z_jump").as_double();
+    config.slope_edge_z_tolerance = get_parameter("slope_edge_z_tolerance").as_double();
+    config.collision_model = get_parameter("collision_model").as_string();
+    config.ground_clearance = get_parameter("ground_clearance").as_double();
+    config.body_z_offset = get_parameter("body_z_offset").as_double();
+    config.ignore_ground_below_base = get_parameter("ignore_ground_below_base").as_bool();
+    config.ground_ignore_depth = get_parameter("ground_ignore_depth").as_double();
+    config.slope_edge_relaxation_enabled =
+      get_parameter("slope_edge_relaxation_enabled").as_bool();
+    config.slope_edge_relaxation_radius =
+      get_parameter("slope_edge_relaxation_radius").as_double();
+    config.unknown_policy = get_parameter("unknown_policy").as_string();
+    config.path_corridor_radius = get_parameter("path_corridor_radius").as_double();
+    config.adaptive_lookahead_enabled = get_parameter("adaptive_lookahead_enabled").as_bool();
+    config.min_local_goal_lookahead = get_parameter("min_local_goal_lookahead").as_double();
+    config.max_local_goal_lookahead = get_parameter("max_local_goal_lookahead").as_double();
+    config.z_change_slowdown_threshold =
+      get_parameter("z_change_slowdown_threshold").as_double();
+    config.recovery_enabled = get_parameter("recovery_enabled").as_bool();
+    config.stuck_detection_enabled = get_parameter("stuck_detection_enabled").as_bool();
+    config.stuck_time_threshold = get_parameter("stuck_time_threshold").as_double();
+    config.min_progress_distance = get_parameter("min_progress_distance").as_double();
+    config.recovery_duration = get_parameter("recovery_duration").as_double();
+    config.enable_reverse_escape = get_parameter("enable_reverse_escape").as_bool();
+    config.enable_lateral_escape = get_parameter("enable_lateral_escape").as_bool();
+    config.enable_rotate_escape = get_parameter("enable_rotate_escape").as_bool();
+    config.near_path_bonus_enabled = get_parameter("near_path_bonus_enabled").as_bool();
+    config.near_path_bonus_radius = get_parameter("near_path_bonus_radius").as_double();
+    config.weight_path_corridor = get_parameter("weight_path_corridor").as_double();
+    config.weight_z_consistency = get_parameter("weight_z_consistency").as_double();
+    config.weight_progress = get_parameter("weight_progress").as_double();
+    config.debug_dwa = get_parameter("debug_dwa").as_bool();
+    config.debug_collision = get_parameter("debug_collision").as_bool();
     return config;
   }
 
@@ -368,6 +450,7 @@ private:
       global_path_.clear();
       path_ready_ = false;
       goal_reached_logged_ = false;
+      resetStuckState();
       publishZeroCmd();
       clearMarkers();
       RCLCPP_WARN(get_logger(), "Received empty path from %s. Local planner is idle.", topic_name.c_str());
@@ -405,6 +488,7 @@ private:
     global_path_ = std::move(path);
     path_ready_ = true;
     goal_reached_logged_ = false;
+    resetStuckState();
     RCLCPP_INFO(
       get_logger(), "Received local-planner global path from %s with %zu poses.",
       topic_name.c_str(), global_path_.size());
@@ -555,7 +639,9 @@ private:
     if (final_goal_distance <= planner_.getConfig().goal_reached_tolerance) {
       publishZeroCmd();
       clearCandidateMarkers();
+      clearRecoveryTrajectoryMarker();
       publishLocalGoalMarker(global_path_.back());
+      resetStuckState();
       if (!goal_reached_logged_) {
         RCLCPP_INFO(get_logger(), "Goal reached");
         goal_reached_logged_ = true;
@@ -592,12 +678,36 @@ private:
 
     publishCandidateTrajectories(candidates);
     publishLocalGoalMarker(planner_.getLastLocalGoal());
+    publishPathCorridorMarker();
+
+    const bool stuck = isStuck(current_pose, ok);
+    if (!ok || stuck) {
+      Velocity3D recovery_cmd;
+      Trajectory3D recovery_traj;
+      if (planner_.computeRecoveryCommand(recovery_cmd, recovery_traj)) {
+        publishCmd(recovery_cmd);
+        publishRecoveryTrajectoryMarker(recovery_traj);
+        if (!ok) {
+          clearBestTrajectoryMarker();
+        }
+        publishDwaDebugText(current_pose, ok, stuck, compute_ms);
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 1000,
+          "DWA recovery cmd vx=%.3f vy=%.3f wz=%.3f state=%s",
+          recovery_cmd.vx, recovery_cmd.vy, recovery_cmd.wz,
+          planner_.getLastDebugInfo().recovery_state.c_str());
+        return;
+      }
+    }
+
+    clearRecoveryTrajectoryMarker();
+    publishDwaDebugText(current_pose, ok, stuck, compute_ms);
     if (!ok) {
       publishZeroCmd();
       clearBestTrajectoryMarker();
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
-        "No valid DWA trajectory. Publishing zero velocity.");
+        "No valid DWA trajectory and no safe recovery command. Publishing zero velocity.");
       return;
     }
 
@@ -750,6 +860,101 @@ private:
     }
   }
 
+  void resetStuckState()
+  {
+    progress_pose_initialized_ = false;
+    no_valid_active_ = false;
+    stuck_state_ = false;
+  }
+
+  bool isStuck(const Pose3D & current_pose, bool has_valid_trajectory)
+  {
+    const auto & config = planner_.getConfig();
+    if (!config.stuck_detection_enabled) {
+      stuck_state_ = false;
+      return false;
+    }
+
+    const auto stamp = now();
+    if (!progress_pose_initialized_) {
+      last_progress_pose_ = current_pose;
+      last_progress_stamp_ = stamp;
+      progress_pose_initialized_ = true;
+      if (!has_valid_trajectory) {
+        no_valid_since_ = stamp;
+        no_valid_active_ = true;
+      }
+      stuck_state_ = false;
+      return false;
+    }
+
+    const double progress = std::hypot(
+      current_pose.x - last_progress_pose_.x,
+      current_pose.y - last_progress_pose_.y);
+    if (progress >= config.min_progress_distance) {
+      last_progress_pose_ = current_pose;
+      last_progress_stamp_ = stamp;
+    }
+
+    if (!has_valid_trajectory) {
+      if (!no_valid_active_) {
+        no_valid_since_ = stamp;
+        no_valid_active_ = true;
+      }
+    } else {
+      no_valid_active_ = false;
+    }
+
+    const double commanded_planar = std::hypot(last_cmd_vel_.vx, last_cmd_vel_.vy);
+    const bool command_active = commanded_planar > 0.03 || std::abs(last_cmd_vel_.wz) > 0.08;
+    const double stuck_threshold = std::max(0.1, config.stuck_time_threshold);
+    const bool no_valid_stuck =
+      no_valid_active_ && (stamp - no_valid_since_).seconds() >= stuck_threshold;
+    const bool low_progress_stuck =
+      command_active && (stamp - last_progress_stamp_).seconds() >= stuck_threshold;
+
+    stuck_state_ = no_valid_stuck || low_progress_stuck;
+    return stuck_state_;
+  }
+
+  void publishDwaDebugText(
+    const Pose3D & current_pose,
+    bool dwa_ok,
+    bool stuck,
+    std::int64_t compute_ms)
+  {
+    if (!planner_.getConfig().debug_dwa) {
+      return;
+    }
+
+    const auto & debug = planner_.getLastDebugInfo();
+    const auto & local_goal = planner_.getLastLocalGoal();
+    std::ostringstream ss;
+    ss << "valid_trajectories=" << debug.valid_trajectories << '\n';
+    ss << "collision_trajectories=" << debug.collision_trajectories << '\n';
+    ss << "unknown_blocked_count=" << debug.unknown_blocked_count << '\n';
+    ss << "ground_blocked_count=" << debug.ground_blocked_count << '\n';
+    ss << "best_score=";
+    if (std::isfinite(debug.best_score)) {
+      ss << debug.best_score;
+    } else {
+      ss << "none";
+    }
+    ss << '\n';
+    ss << "stuck_state=" << (stuck ? "true" : "false") << '\n';
+    ss << "recovery_state=" << debug.recovery_state << '\n';
+    ss << "dwa_ok=" << (dwa_ok ? "true" : "false") << '\n';
+    ss << "compute_ms=" << compute_ms << '\n';
+    ss << "local_goal_xyz="
+       << local_goal.x() << ',' << local_goal.y() << ',' << local_goal.z() << '\n';
+    ss << "current_pose_xyz="
+       << current_pose.x << ',' << current_pose.y << ',' << current_pose.z;
+
+    std_msgs::msg::String msg;
+    msg.data = ss.str();
+    debug_text_pub_->publish(msg);
+  }
+
   void publishCmd(const Velocity3D & cmd)
   {
     geometry_msgs::msg::Twist twist;
@@ -800,6 +1005,78 @@ private:
     marker.id = 0;
     marker.action = visualization_msgs::msg::Marker::DELETE;
     best_traj_pub_->publish(marker);
+  }
+
+  void publishRecoveryTrajectoryMarker(const Trajectory3D & traj)
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = get_parameter("map_frame").as_string();
+    marker.ns = "dwa_recovery_trajectory";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.scale.x = 0.065;
+    marker.color.r = 1.0f;
+    marker.color.g = 0.55f;
+    marker.color.b = 0.05f;
+    marker.color.a = 0.95f;
+    marker.lifetime = makeDurationMsg(get_parameter("marker_lifetime").as_double());
+    marker.points.reserve(traj.poses.size());
+    for (const auto & pose : traj.poses) {
+      marker.points.push_back(makePoint(pose.x, pose.y, pose.z));
+    }
+    recovery_traj_pub_->publish(marker);
+  }
+
+  void clearRecoveryTrajectoryMarker()
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = get_parameter("map_frame").as_string();
+    marker.ns = "dwa_recovery_trajectory";
+    marker.id = 0;
+    marker.action = visualization_msgs::msg::Marker::DELETE;
+    recovery_traj_pub_->publish(marker);
+  }
+
+  void publishPathCorridorMarker()
+  {
+    if (global_path_.empty()) {
+      clearPathCorridorMarker();
+      return;
+    }
+
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = get_parameter("map_frame").as_string();
+    marker.ns = "dwa_path_corridor";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.scale.x = std::max(0.03, 2.0 * planner_.getConfig().path_corridor_radius);
+    marker.color.r = 0.25f;
+    marker.color.g = 0.55f;
+    marker.color.b = 1.0f;
+    marker.color.a = 0.18f;
+    marker.pose.orientation.w = 1.0;
+    marker.lifetime = makeDurationMsg(get_parameter("marker_lifetime").as_double());
+    marker.points.reserve(global_path_.size());
+    for (const auto & point : global_path_) {
+      marker.points.push_back(makePoint(point.x(), point.y(), point.z()));
+    }
+    path_corridor_pub_->publish(marker);
+  }
+
+  void clearPathCorridorMarker()
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = get_parameter("map_frame").as_string();
+    marker.ns = "dwa_path_corridor";
+    marker.id = 0;
+    marker.action = visualization_msgs::msg::Marker::DELETE;
+    path_corridor_pub_->publish(marker);
   }
 
   void publishCandidateTrajectories(const std::vector<Trajectory3D> & trajectories)
@@ -906,6 +1183,8 @@ private:
     clearBestTrajectoryMarker();
     clearCandidateMarkers();
     clearLocalGoalMarker();
+    clearRecoveryTrajectoryMarker();
+    clearPathCorridorMarker();
   }
 
   DWA3DLocalPlanner planner_;
@@ -922,6 +1201,9 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr best_traj_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr candidate_traj_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr local_goal_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr recovery_traj_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr path_corridor_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr debug_text_pub_;
   rclcpp::TimerBase::SharedPtr control_timer_;
 
   std::vector<Eigen::Vector3d> global_path_;
@@ -937,6 +1219,12 @@ private:
   bool goal_reached_logged_{false};
   int previous_candidate_marker_count_{0};
   std::string active_base_frame_;
+  Pose3D last_progress_pose_;
+  rclcpp::Time last_progress_stamp_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time no_valid_since_{0, 0, RCL_ROS_TIME};
+  bool progress_pose_initialized_{false};
+  bool no_valid_active_{false};
+  bool stuck_state_{false};
 };
 
 }  // namespace local_planning

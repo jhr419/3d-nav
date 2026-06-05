@@ -16,6 +16,7 @@ find_package(octomap REQUIRED)
 find_package(octomap_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -52,6 +53,7 @@ ament_target_dependencies(local_planner_node
   octomap_msgs
   rclcpp
   sensor_msgs
+  std_msgs
   tf2
   tf2_geometry_msgs
   tf2_ros
@@ -87,6 +89,7 @@ ament_export_dependencies(
   octomap_msgs
   rclcpp
   sensor_msgs
+  std_msgs
   tf2
   tf2_geometry_msgs
   tf2_ros
