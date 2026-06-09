@@ -30,8 +30,8 @@
             blind: 0.5                     # 盲区距离，小于该距离的点会被过滤，单位 m
             timestamp_unit: 3              # 点云时间戳单位：0 s，1 ms，2 us，3 ns
             scan_rate: 10                  # 雷达扫描频率，单位 Hz
-            # input_rotation_rpy_rad: [0.0, 0.0, 0.0] # 输入雷达和 IMU 同步旋转角 [roll, pitch, yaw]，单位 rad
-            input_rotation_rpy_rad: [-0.034101, 0.566395, 0.0]
+            input_rotation_rpy_rad: [0.0, 0.0,  0.0] # 输入雷达和 IMU 同步旋转角 [roll, pitch, yaw]，单位 rad
+            # input_rotation_rpy_rad: [-0.034101, 0.566395, 0.0]
         mapping:
             acc_cov: 0.1                   # 加速度计噪声协方差
             gyr_cov: 0.1                   # 陀螺仪噪声协方差
@@ -39,7 +39,7 @@
             b_gyr_cov: 0.0001              # 陀螺仪零偏随机游走协方差
             fov_degree:    360.0           # 建图视场角，单位 deg
             det_range:     100.0           # 有效探测距离，单位 m
-            height_filter_en: true         # 是否开启输出地图高度过滤；发布过滤地图，保存时额外输出 full_map.pcd 和 height_filter_map.pcd
+            height_filter_en: false         # 是否开启输出地图高度过滤；发布过滤地图，保存时额外输出 full_map.pcd 和 height_filter_map.pcd
             height_filter_local_map_en: false # 是否同时过滤定位用局部地图；开启可能减少约束并导致漂移
             h_min: -2.0                   # 地图高度过滤下限，body 坐标系 z，单位 m
             h_max: 0.7                    # 地图高度过滤上限，body 坐标系 z，单位 m
