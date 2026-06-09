@@ -1,0 +1,6 @@
+/driver_node:
+  ros__parameters:
+    base_frame: base
+    odom_frame: odom
+    publish_tf: True
+    use_sim_time: false

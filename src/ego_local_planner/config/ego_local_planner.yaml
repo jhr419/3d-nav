@@ -1,0 +1,70 @@
+ego_local_planner_node:
+  ros__parameters:
+    map_frame: "map"
+    odom_frame: "odom"
+    base_frame: "base_link"
+    base_frame_candidates: "base_link,base_footprint,odin1_base_link"
+    lidar_frame: "livox_frame"
+
+    global_path_topic: "/planned_path"
+    pointcloud_topic: "/livox/lidar"
+    additional_pointcloud_topics: "/cloud_registered,/cloud_registered_body,/mid360"
+    pointcloud_frame_remaps: "body:livox_frame"
+    pointcloud_map_frame_aliases: "camera_init"
+    require_fresh_cloud: true
+    odom_topic: "/Odometry"
+    cmd_vel_topic: "/cmd_vel"
+
+    ego_local_trajectory_topic: "/ego_local_trajectory"
+    ego_local_trajectory_marker_topic: "/ego_local_trajectory_marker"
+    ego_local_map_vis_topic: "/ego_local_map_vis"
+    ego_target_marker_topic: "/ego_target_marker"
+    status_topic: "/ego_local_planner/status"
+    debug_topic: "/ego_local_planner/debug"
+
+    robot_model: "ground_omni"
+    allow_z_motion: false
+
+    cloud_in_sensor_frame: true
+    local_map_radius: 2.5
+    local_map_height: 1.2
+    voxel_resolution: 0.15
+    inflation_radius: 0.25
+    robot_clear_radius: 0.50
+    astar_search_margin: 1.0
+
+    remove_ground_points: true
+    ground_relative_to_base: true
+    ground_z_threshold: 0.08
+    self_filter_radius: 0.45
+    dynamic_obstacle_timeout: 0.5
+
+    local_target_lookahead: 1.2
+    min_local_target_lookahead: 0.5
+    goal_reached_tolerance: 0.35
+    z_following_enabled: true
+    max_allowed_z_jump: 0.35
+
+    max_vel_x: 0.6
+    max_vel_y: 0.4
+    max_acc_x: 0.5
+    max_acc_y: 0.5
+    max_yaw_rate: 1.0
+    max_yaw_acc: 1.5
+
+    traj_tracking_lookahead_time: 0.5
+    traj_tracking_lookahead_distance: 0.4
+    kp_x: 0.8
+    kp_y: 0.8
+    kp_yaw: 1.2
+    min_cmd_vel: 0.03
+    max_cmd_vel_x: 0.6
+    max_cmd_vel_y: 0.4
+    max_cmd_wz: 1.0
+
+    replan_frequency: 5.0
+    control_frequency: 20.0
+    collision_check_frequency: 10.0
+    replan_on_dynamic_obstacle: true
+    replan_when_path_blocked: true
+    path_block_check_distance: 1.2

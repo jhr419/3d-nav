@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -e
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+export LD_LIBRARY_PATH="${script_dir}:${LD_LIBRARY_PATH:-}"
+exec "${script_dir}/sc_pgo_node_bin" "$@"
