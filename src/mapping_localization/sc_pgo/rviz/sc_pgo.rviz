@@ -1,0 +1,241 @@
+# =============================================================================
+# RViz 配置文件用于 SC-PGO 可视化
+# 
+# 该配置文件显示：
+# - 优化后的轨迹路径
+# - 关键帧点云地图
+# - 回环连接线
+# =============================================================================
+
+Panels:
+    - Class: rviz_common / Displays
+        Help Height: 78
+        Name: Displays
+        Property Tree Widget:
+            Expanded:
+                - /Global Options1
+                - /Path1
+                - /Keyframes Map1
+            Splitter Ratio: 0.5
+        Tree Height: 557
+    - Class: rviz_common / Selection
+        Name: Selection
+    - Class: rviz_common / Tool Properties
+        Name: Tools
+        Expanded:
+            - /2D Pose Estimate1
+            - /2D Nav Goal1
+    - Class: rviz_common / Views
+        Expanded:
+            - /Current View1
+        Name: Views
+        Splitter Ratio: 0.5
+
+Visualization Manager:
+    Class: ""
+    Displays:
+        - Alpha: 0.5
+        Cell Size: 1
+        Class: rviz_default_plugins / Grid
+        Color: 160; 160; 164
+        Enabled: true
+        Line Style:
+            Line Width: 0.029999999329447746
+            Value: Lines
+        Name: Grid
+        Normal Cell Count: 0
+        Offset:
+            X: 0
+            Y: 0
+            Z: 0
+        Planar Cell Count: 100; 100
+        Reference Frame: map
+        Value: true
+        
+        # 原始轨迹（蓝色）
+        - Class: rviz_default_plugins / Path
+            Color: 0; 0; 255
+            Enabled: true
+            Head Diameter: 0.300000012
+            Head Length: 0.200000003
+            Length: 0.300000012
+            Line Style: Lines
+            Line Width: 0.029999999329447746
+            Name: Original Path
+            Offset:
+                X: 0
+                Y: 0
+                Z: 0
+            Pose: Comment
+            Queue Size: 100
+            Radius: 0.029999999329447746
+            Shaft Diameter: 0.100000001
+            Shaft Length: 0.100000001
+            Topic:
+                Depth: 5
+                Durability Policy: Volatile
+                History Policy: Keep Last
+                Reliability Policy: Reliable
+                Value: /path
+            Value: true
+            
+        # 优化后的轨迹（绿色）
+        - Alpha: 1
+            Color: 0; 255; 0
+            Enabled: true
+            Line Style: Line Strip
+            Line Width: 0.029999999329447746
+            Name: Optimized Path
+            Pose Color: 255; 85; 255
+            Pose Style: None
+            Queue Size: 100
+            Topic:
+                Depth: 5
+                Durability Policy: Volatile
+                History Policy: Keep Last
+                Reliability Policy: Reliable
+                Value: /pgo/optimized_path
+            Value: true
+            
+        # 关键帧点云地图
+        - Alpha: 0.800000012
+            Class: rviz_default_plugins / PointCloud2
+            Color: 200; 200; 200
+            Color Transformer: Intensity
+            Enabled: true
+            Invert Rainbow: false
+            Max Color: 255; 255; 255
+            Max Intensity: 255
+            Min Color: 0; 0; 0
+            Min Intensity: 0
+            Name: Keyframes Map
+            Position Transformer: XYZ
+            Queue Size: 10
+            Selectable: true
+            Size (Pixels): 3
+            Size (M): 0.200000003
+            Style: Points
+            Topic:
+                Depth: 5
+                Durability Policy: Volatile
+                History Policy: Keep Last
+                Reliability Policy: Reliable
+                Value: /pgo/optimized_map
+            Alpha: 0.800000012
+            Value: true
+            
+        # 回环检测可视化
+        - Class: visualization_msgs / MarkerArray
+            Enabled: true
+            Name: Loop Markers
+            Namespaces:
+                pgo_loop_edges: true
+            Queue Size: 100
+            Topic:
+                Depth: 5
+                Durability Policy: Volatile
+                History Policy: Keep Last
+                Reliability Policy: Reliable
+                Value: /pgo/loop_markers
+            Value: true
+            
+        # TF 显示
+        - Class: rviz_default_plugins / TF
+            Enabled: true
+            Frame Timeout: 15
+            Frames:
+                All Enabled: true
+            Marker Scale: 1
+            Name: TF
+            Show Arrows: true
+            Show Axes: true
+            Show Names: true
+            Tree:
+                {}
+            Update Topic:
+                Depth: 5
+                Durability Policy: Volatile
+                History Policy: Keep Last
+                Reliability Policy: Reliable
+                Value: /tf
+            Value: true
+            
+        # 里程计显示
+        - Class: rviz_default_plugins / Odometry
+            Alpha: 1
+            Axes Length: 1
+            Axes Radius: 0.100000001
+            Color: 255; 25; 0
+            Covariance: true
+            Covariance Color: 25; 255; 25
+            Covariance Style: Standard
+            Enabled: true
+            Keep: 100
+            Name: Odometry
+            Position Tolerance: 0.100000001
+            Queue Size: 100
+            Shape: Axes
+            Topic:
+                Depth: 5
+                Durability Policy: Volatile
+                History Policy: Keep Last
+                Reliability Policy: Reliable
+                Value: /pgo/optimized_odometry
+            Theta Velocity Tolerance: 0.0500000007
+            Value: true
+            
+    Enabled: true
+    Global Options:
+        Background Color: 48; 48; 48
+        Fixed Frame: map
+        Frame Rate: 30
+    Name: root
+    Tools:
+        - Class: rviz_default_plugins / Interact
+            Hide Inactive Objects: true
+        - Class: rviz_default_plugins / MoveCamera
+        - Class: rviz_default_plugins / Select
+    Transformation:
+        Current:
+            Class: rviz_default_plugins / TF2
+    Value: true
+    Views:
+        Current:
+            Class: rviz_default_plugins / Orbit
+            Distance: 50
+            Enable Stereo Rendering:
+                Stereo Eye Separation: 0.0599999987
+                Stereo Focal Distance: 1
+                Swap Stereo Eyes: false
+                Value: false
+            Focal Point:
+                X: 0
+                Y: 0
+                Z: 0
+            Focal Shape Fixed Size: true
+            Focal Shape Size: 0.0500000007
+            Invert Z Axis: false
+            Name: Current View
+            Near Clip Distance: 0.0099999998
+            Pitch: 0.785398185
+            Target Frame: camera_init
+            Value: Orbit (rviz)
+            Yaw: 0.785398185
+        Saved: ~
+
+Window Geometry:
+    Displays:
+        collapsed: false
+    Height: 1054
+    Hide Left Dock: false
+    Hide Right Dock: false
+    QMainWindow Stays on Top: false
+    Selection:
+        collapsed: false
+    Tool Properties:
+        collapsed: false
+    Views:
+        collapsed: false
+    Width: 1836
+    X: 68
+    Y: 0

@@ -2,44 +2,61 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    package_path = get_package_share_directory("sc_pgo")
-    default_config = os.path.join(package_path, "config", "fastlio_sc_pgo.yaml")
+    package_name = 'sc_pgo'
+    package_share = get_package_share_directory(package_name)
+    default_config_file = os.path.join(package_share, 'config', 'sc_pgo.yaml')
 
-    use_sim_time = LaunchConfiguration("use_sim_time")
-    config_file = LaunchConfiguration("config_file")
-    save_directory = LaunchConfiguration("save_directory")
+    config_file = LaunchConfiguration('config_file')
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    odom_topic = LaunchConfiguration('odom_topic')
+    keyframe_cloud_topic = LaunchConfiguration('keyframe_cloud_topic')
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            "use_sim_time",
-            default_value="false",
-            description="Use simulation clock if true",
+            'config_file',
+            default_value=default_config_file,
+            description='SC-PGO YAML parameter file',
         ),
         DeclareLaunchArgument(
-            "config_file",
-            default_value=default_config,
-            description="SC-PGO parameter YAML",
+            'use_sim_time',
+            default_value='false',
+            description='Use /clock when replaying bags with simulated time',
         ),
         DeclareLaunchArgument(
-            "save_directory",
-            default_value="maps/sc_pgo",
-            description="Directory for optimized_poses.txt, odom_poses.txt, times.txt and Scans",
+            'odom_topic',
+            default_value='/Odometry',
+            description='FAST-LIO odometry topic',
         ),
+        DeclareLaunchArgument(
+            'keyframe_cloud_topic',
+            default_value='/cloud_registered',
+            description='FAST-LIO registered cloud topic used for keyframes',
+        ),
+        LogInfo(msg=[
+            'Starting SC-PGO only. Subscribing odom=', odom_topic,
+            ', keyframe_cloud=', keyframe_cloud_topic,
+            ', config=', config_file,
+            '. Publishing /pgo/optimized_odometry, /pgo/optimized_path, /pgo/optimized_map, /pgo/loop_markers.',
+        ]),
         Node(
-            package="sc_pgo",
-            executable="sc_pgo_node",
-            name="sc_pgo_node",
-            output="screen",
+            package=package_name,
+            executable='sc_pgo_node',
+            name='sc_pgo_node',
+            output='screen',
             parameters=[
                 config_file,
-                {"use_sim_time": use_sim_time},
-                {"save_directory": save_directory},
+                {
+                    'use_sim_time': use_sim_time,
+                    'odom_topic': odom_topic,
+                    'cloud_topic': keyframe_cloud_topic,
+                    'keyframe_cloud_topic': keyframe_cloud_topic,
+                },
             ],
         ),
     ])

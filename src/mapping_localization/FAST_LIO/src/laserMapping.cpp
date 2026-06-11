@@ -1302,6 +1302,24 @@ public:
 
         Lidar_T_wrt_IMU<<VEC_FROM_ARRAY(extrinT);
         Lidar_R_wrt_IMU<<MAT_FROM_ARRAY(extrinR);
+
+        //经过倾斜安装以后，新的lidar与imu外参应为：
+        //T_new = T * T_ext * T^-1
+        //修正外参开始
+        // double roll  = input_rotation[0];
+        // double pitch = input_rotation[1];
+        // double yaw   = input_rotation[2];
+        // // ROS 常见 RPY 顺序：R = Rz(yaw) * Ry(pitch) * Rx(roll)
+        // Eigen::Matrix3d R_delta =
+        //     Eigen::AngleAxisd(yaw,   Eigen::Vector3d::UnitZ()).toRotationMatrix() *
+        //     Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()).toRotationMatrix() *
+        //     Eigen::AngleAxisd(roll,  Eigen::Vector3d::UnitX()).toRotationMatrix();
+
+        // // T_new = T * T_ext * T^-1
+        // Lidar_T_wrt_IMU = R_delta * Lidar_T_wrt_IMU;
+        // Lidar_R_wrt_IMU = R_delta * Lidar_R_wrt_IMU * R_delta.transpose();
+        //修正外参结束
+
         p_imu->set_extrinsic(Lidar_T_wrt_IMU, Lidar_R_wrt_IMU);
         p_imu->set_gyr_cov(V3D(gyr_cov, gyr_cov, gyr_cov));
         p_imu->set_acc_cov(V3D(acc_cov, acc_cov, acc_cov));

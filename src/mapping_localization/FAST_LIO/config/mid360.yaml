@@ -1,6 +1,6 @@
 /**:
     ros__parameters:
-        feature_extract_enable: false     # 是否开启点云特征提取
+        feature_extract_enable: true     # 是否开启点云特征提取
         point_filter_num: 3               # 点云降采样间隔，每隔多少个点取一个
         max_iteration: 3                  # EKF 单帧最大迭代次数
         filter_size_surf: 0.5             # 当前帧平面点体素滤波尺寸，单位 m
@@ -12,11 +12,13 @@
         common:
             lid_topic:  "/livox/lidar"    # 雷达点云话题
             imu_topic:  "/livox/imu"      # IMU 话题
+            # lid_topic:  "/utlidar/cloud_deskewed"    # 雷达点云话题
+            # imu_topic:  ""      # IMU 话题
             time_sync_en: false           # 是否启用软件时间同步，仅在没有外部硬件同步时开启
             time_offset_lidar_to_imu: 0.0 # 雷达到 IMU 的时间偏移，单位 s；未知时保持 0
 
         rosbag:
-            enable: false                  # 是否直接读取 ros2 bag 建图；true 时不需要 ros2 bag play
+            enable: true                  # 是否直接读取 ros2 bag 建图；true 时不需要 ros2 bag play
             path: "/media/jhr/T9/Datasets/Indoor_Office/cu_indoor_office/"                       # ros2 bag 目录路径，例如 /home/user/data/bag_0
             storage_id: "sqlite3"          # rosbag2 存储后端，常见为 sqlite3 或 mcap
             auto_shutdown: true            # bag 读取完成后是否自动退出节点并保存地图
@@ -39,7 +41,7 @@
             b_gyr_cov: 0.0001              # 陀螺仪零偏随机游走协方差
             fov_degree:    360.0           # 建图视场角，单位 deg
             det_range:     100.0           # 有效探测距离，单位 m
-            height_filter_en: false         # 是否开启输出地图高度过滤；发布过滤地图，保存时额外输出 full_map.pcd 和 height_filter_map.pcd
+            height_filter_en: true         # 是否开启输出地图高度过滤；发布过滤地图，保存时额外输出 full_map.pcd 和 height_filter_map.pcd
             height_filter_local_map_en: false # 是否同时过滤定位用局部地图；开启可能减少约束并导致漂移
             h_min: -2.0                   # 地图高度过滤下限，body 坐标系 z，单位 m
             h_max: 0.7                    # 地图高度过滤上限，body 坐标系 z，单位 m
@@ -49,7 +51,7 @@
             dynamic_filter_max_range: 4.0  # 动态过滤最远距离；跟随建图人员通常在 1-3m 内
             dynamic_filter_search_radius: 0.6 # 世界坐标系历史地图支撑搜索半径，单位 m
             dynamic_filter_min_neighbors: 3 # 搜索半径内至少多少个历史地图点才允许写入地图
-            extrinsic_est_en:  true        # 是否在线估计 IMU 到雷达外参
+            extrinsic_est_en:  false        # 是否在线估计 IMU 到雷达外参
             extrinsic_T: [ -0.011, -0.02329, 0.04412 ] # 雷达到 IMU 的平移外参
             extrinsic_R: [ 1., 0., 0.,
                             0., 1., 0.,

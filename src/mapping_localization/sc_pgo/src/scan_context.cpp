@@ -1,404 +1,282 @@
-#include "sc_pgo/scan_context/scan_context.hpp"
+/**
+ * @file scan_context.cpp
+ * @brief Lightweight Scan Context implementation.
+ */
 
-#include <cassert>
+#include "dddmr_sc_pgo/scan_context.h"
+
+#include <algorithm>
+#include <cmath>
 #include <limits>
+#include <numeric>
 
-namespace sc_pgo
+namespace dddmr_sc_pgo
 {
 
-float xy2theta(const float x, const float y)
+ScanContextManager::ScanContextManager()
+    : max_radius_(80.0)
+    , num_rings_(20)
+    , num_sectors_(60)
+    , max_tree_depth_(20)
+    , lidar_height_(0.0)
+    , loop_exclude_recent_num_(30)
+    , loop_candidate_num_(10)
+    , loop_distance_threshold_(0.15)
+    , search_ratio_(0.1)
+    , last_loop_similarity_(0.0)
+    , curr_keyframe_id_(0)
 {
-  float theta = std::atan2(y, x) * 180.0f / static_cast<float>(M_PI);
-  if (theta < 0.0f) {
-    theta += 360.0f;
-  }
-  return theta;
 }
 
-Eigen::MatrixXd circshift(const Eigen::MatrixXd & mat, const int num_shift)
+void ScanContextManager::setParam(
+    double max_radius,
+    int num_rings,
+    int num_sectors,
+    int max_tree_depth)
 {
-  assert(num_shift >= 0);
-
-  if (num_shift == 0) {
-    return mat;
-  }
-
-  Eigen::MatrixXd shifted_mat = Eigen::MatrixXd::Zero(mat.rows(), mat.cols());
-  for (int col_idx = 0; col_idx < mat.cols(); ++col_idx) {
-    const int new_location = (col_idx + num_shift) % mat.cols();
-    shifted_mat.col(new_location) = mat.col(col_idx);
-  }
-
-  return shifted_mat;
+    max_radius_ = std::max(1.0, max_radius);
+    num_rings_ = std::max(1, num_rings);
+    num_sectors_ = std::max(1, num_sectors);
+    max_tree_depth_ = std::max(1, max_tree_depth);
 }
 
-std::vector<float> eig2stdvec(const Eigen::MatrixXd & eigmat)
+void ScanContextManager::setLidarHeight(double lidar_height)
 {
-  return std::vector<float>(eigmat.data(), eigmat.data() + eigmat.size());
+    lidar_height_ = lidar_height;
 }
 
-double ScanContextManager::distDirectSC(
-  const Eigen::MatrixXd & sc1,
-  const Eigen::MatrixXd & sc2) const
+void ScanContextManager::setLoopDetectionParam(
+    int exclude_recent_num,
+    int candidate_num,
+    double distance_threshold,
+    double search_ratio)
 {
-  int num_eff_cols = 0;
-  double sum_sector_similarity = 0.0;
+    loop_exclude_recent_num_ = std::max(1, exclude_recent_num);
+    loop_candidate_num_ = std::max(1, candidate_num);
+    loop_distance_threshold_ = std::max(0.0, distance_threshold);
+    search_ratio_ = std::max(0.0, std::min(1.0, search_ratio));
+}
 
-  for (int col_idx = 0; col_idx < sc1.cols(); ++col_idx) {
-    const Eigen::VectorXd col_sc1 = sc1.col(col_idx);
-    const Eigen::VectorXd col_sc2 = sc2.col(col_idx);
+Eigen::MatrixXf ScanContextManager::projectToPolarGrid(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud)
+{
+    const float empty_value = std::numeric_limits<float>::lowest();
+    Eigen::MatrixXf polar_matrix =
+        Eigen::MatrixXf::Constant(num_rings_, num_sectors_, empty_value);
 
-    if (col_sc1.norm() == 0.0 || col_sc2.norm() == 0.0) {
-      continue;
+    const double ring_width = max_radius_ / static_cast<double>(num_rings_);
+    const double sector_width = 2.0 * M_PI / static_cast<double>(num_sectors_);
+
+    for (const auto& point : cloud->points)
+    {
+        const double dist_xy = std::hypot(point.x, point.y);
+        if (dist_xy > max_radius_ || dist_xy < 0.5)
+        {
+            continue;
+        }
+
+        int ring_idx = static_cast<int>(dist_xy / ring_width);
+        ring_idx = std::min(ring_idx, num_rings_ - 1);
+
+        double angle = std::atan2(point.y, point.x);
+        if (angle < 0.0)
+        {
+            angle += 2.0 * M_PI;
+        }
+
+        int sector_idx = static_cast<int>(angle / sector_width);
+        sector_idx = std::min(sector_idx, num_sectors_ - 1);
+
+        const float height = static_cast<float>(point.z + lidar_height_);
+        polar_matrix(ring_idx, sector_idx) =
+            std::max(polar_matrix(ring_idx, sector_idx), height);
     }
 
-    const double sector_similarity =
-      col_sc1.dot(col_sc2) / (col_sc1.norm() * col_sc2.norm());
-
-    sum_sector_similarity += sector_similarity;
-    ++num_eff_cols;
-  }
-
-  if (num_eff_cols == 0) {
-    return 1.0;
-  }
-
-  const double sc_sim = sum_sector_similarity / static_cast<double>(num_eff_cols);
-  return 1.0 - sc_sim;
-}
-
-int ScanContextManager::fastAlignUsingVkey(
-  const Eigen::MatrixXd & vkey1,
-  const Eigen::MatrixXd & vkey2) const
-{
-  int argmin_vkey_shift = 0;
-  double min_vkey_diff_norm = std::numeric_limits<double>::max();
-
-  for (int shift_idx = 0; shift_idx < vkey1.cols(); ++shift_idx) {
-    const Eigen::MatrixXd vkey2_shifted = circshift(vkey2, shift_idx);
-    const Eigen::MatrixXd vkey_diff = vkey1 - vkey2_shifted;
-    const double cur_diff_norm = vkey_diff.norm();
-
-    if (cur_diff_norm < min_vkey_diff_norm) {
-      argmin_vkey_shift = shift_idx;
-      min_vkey_diff_norm = cur_diff_norm;
-    }
-  }
-
-  return argmin_vkey_shift;
-}
-
-std::pair<double, int> ScanContextManager::distanceBtnScanContext(
-  const Eigen::MatrixXd & sc1,
-  const Eigen::MatrixXd & sc2) const
-{
-  const Eigen::MatrixXd vkey_sc1 = makeSectorkeyFromScancontext(sc1);
-  const Eigen::MatrixXd vkey_sc2 = makeSectorkeyFromScancontext(sc2);
-  const int argmin_vkey_shift = fastAlignUsingVkey(vkey_sc1, vkey_sc2);
-
-  const int search_radius =
-    std::round(0.5 * SEARCH_RATIO * static_cast<double>(sc1.cols()));
-  std::vector<int> shift_idx_search_space{argmin_vkey_shift};
-  for (int ii = 1; ii < search_radius + 1; ++ii) {
-    shift_idx_search_space.push_back((argmin_vkey_shift + ii + sc1.cols()) % sc1.cols());
-    shift_idx_search_space.push_back((argmin_vkey_shift - ii + sc1.cols()) % sc1.cols());
-  }
-  std::sort(shift_idx_search_space.begin(), shift_idx_search_space.end());
-
-  int argmin_shift = 0;
-  double min_sc_dist = std::numeric_limits<double>::max();
-  for (const int num_shift : shift_idx_search_space) {
-    const Eigen::MatrixXd sc2_shifted = circshift(sc2, num_shift);
-    const double cur_sc_dist = distDirectSC(sc1, sc2_shifted);
-    if (cur_sc_dist < min_sc_dist) {
-      argmin_shift = num_shift;
-      min_sc_dist = cur_sc_dist;
-    }
-  }
-
-  return std::make_pair(min_sc_dist, argmin_shift);
-}
-
-Eigen::MatrixXd ScanContextManager::makeScancontext(
-  pcl::PointCloud<PointType> & scan_down) const
-{
-  TicTocLogger timer(debug_timing_);
-
-  constexpr int NO_POINT = -1000;
-  Eigen::MatrixXd desc = NO_POINT * Eigen::MatrixXd::Ones(PC_NUM_RING, PC_NUM_SECTOR);
-
-  for (const auto & scan_point : scan_down.points) {
-    PointType point = scan_point;
-    point.z += static_cast<float>(lidar_height_);
-
-    const float azim_range = std::sqrt(point.x * point.x + point.y * point.y);
-    const float azim_angle = xy2theta(point.x, point.y);
-
-    if (azim_range > pc_max_radius_) {
-      continue;
+    for (int r = 0; r < polar_matrix.rows(); ++r)
+    {
+        for (int c = 0; c < polar_matrix.cols(); ++c)
+        {
+            if (polar_matrix(r, c) == empty_value)
+            {
+                polar_matrix(r, c) = 0.0f;
+            }
+        }
     }
 
-    const int ring_idx = std::max(
-      std::min(PC_NUM_RING, static_cast<int>(
-        std::ceil((azim_range / pc_max_radius_) * static_cast<float>(PC_NUM_RING)))),
-      1);
-    const int sector_idx = std::max(
-      std::min(PC_NUM_SECTOR, static_cast<int>(
-        std::ceil((azim_angle / 360.0f) * static_cast<float>(PC_NUM_SECTOR)))),
-      1);
+    return polar_matrix;
+}
 
-    if (desc(ring_idx - 1, sector_idx - 1) < point.z) {
-      desc(ring_idx - 1, sector_idx - 1) = point.z;
+Eigen::MatrixXf ScanContextManager::makeAndSaveScanContext(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud)
+{
+    Eigen::MatrixXf sc = projectToPolarGrid(cloud);
+    scan_contexts_.push_back(sc);
+    ++curr_keyframe_id_;
+    return sc;
+}
+
+Eigen::MatrixXf ScanContextManager::getLastScanContext() const
+{
+    if (scan_contexts_.empty())
+    {
+        return Eigen::MatrixXf();
     }
-  }
+    return scan_contexts_.back();
+}
 
-  for (int row_idx = 0; row_idx < desc.rows(); ++row_idx) {
-    for (int col_idx = 0; col_idx < desc.cols(); ++col_idx) {
-      if (desc(row_idx, col_idx) == NO_POINT) {
-        desc(row_idx, col_idx) = 0.0;
-      }
+double ScanContextManager::computeCosineSimilarity(
+    const Eigen::MatrixXf& sc1,
+    const Eigen::MatrixXf& sc2)
+{
+    if (sc1.rows() != sc2.rows() || sc1.cols() != sc2.cols())
+    {
+        return 0.0;
     }
-  }
 
-  timer.toc("PolarContext making");
-  return desc;
-}
+    Eigen::VectorXf v1 = Eigen::Map<const Eigen::VectorXf>(
+        sc1.data(), sc1.rows() * sc1.cols());
+    Eigen::VectorXf v2 = Eigen::Map<const Eigen::VectorXf>(
+        sc2.data(), sc2.rows() * sc2.cols());
 
-Eigen::MatrixXd ScanContextManager::makeRingkeyFromScancontext(
-  const Eigen::MatrixXd & desc) const
-{
-  Eigen::MatrixXd invariant_key(desc.rows(), 1);
-  for (int row_idx = 0; row_idx < desc.rows(); ++row_idx) {
-    invariant_key(row_idx, 0) = desc.row(row_idx).mean();
-  }
-
-  return invariant_key;
-}
-
-Eigen::MatrixXd ScanContextManager::makeSectorkeyFromScancontext(
-  const Eigen::MatrixXd & desc) const
-{
-  Eigen::MatrixXd variant_key(1, desc.cols());
-  for (int col_idx = 0; col_idx < desc.cols(); ++col_idx) {
-    variant_key(0, col_idx) = desc.col(col_idx).mean();
-  }
-
-  return variant_key;
-}
-
-const Eigen::MatrixXd & ScanContextManager::getConstRefRecentSCD() const
-{
-  return polarcontexts_.back();
-}
-
-void ScanContextManager::saveScancontextAndKeys(const Eigen::MatrixXd & scan_context)
-{
-  Eigen::MatrixXd ringkey = makeRingkeyFromScancontext(scan_context);
-  Eigen::MatrixXd sectorkey = makeSectorkeyFromScancontext(scan_context);
-  std::vector<float> polarcontext_invkey_vec = eig2stdvec(ringkey);
-
-  polarcontexts_.push_back(scan_context);
-  polarcontext_invkeys_.push_back(ringkey);
-  polarcontext_vkeys_.push_back(sectorkey);
-  polarcontext_invkeys_mat_.push_back(polarcontext_invkey_vec);
-}
-
-void ScanContextManager::makeAndSaveScancontextAndKeys(
-  pcl::PointCloud<PointType> & scan_down)
-{
-  const Eigen::MatrixXd scan_context = makeScancontext(scan_down);
-  saveScancontextAndKeys(scan_context);
-}
-
-void ScanContextManager::setSCdistThres(const double new_threshold)
-{
-  sc_dist_thres_ = new_threshold;
-}
-
-void ScanContextManager::setMaximumRadius(const double max_radius)
-{
-  pc_max_radius_ = max_radius;
-}
-
-void ScanContextManager::setNumExcludeRecent(const int num_exclude_recent)
-{
-  num_exclude_recent_ = std::max(1, num_exclude_recent);
-}
-
-void ScanContextManager::setNumCandidatesFromTree(const int num_candidates_from_tree)
-{
-  num_candidates_from_tree_ = std::max(1, num_candidates_from_tree);
-}
-
-void ScanContextManager::setTreeMakingPeriod(const int tree_making_period)
-{
-  tree_making_period_ = std::max(1, tree_making_period);
-}
-
-void ScanContextManager::setLidarHeight(const double lidar_height)
-{
-  lidar_height_ = lidar_height;
-}
-
-void ScanContextManager::setDebugTiming(const bool enabled)
-{
-  debug_timing_ = enabled;
-}
-
-int ScanContextManager::numExcludeRecent() const
-{
-  return num_exclude_recent_;
-}
-
-std::pair<int, float> ScanContextManager::detectLoopClosureIDBetweenSession(
-  std::vector<float> & current_key,
-  Eigen::MatrixXd & current_desc)
-{
-  int loop_id = -1;
-
-  if (polarcontext_invkeys_mat_.empty()) {
-    return std::make_pair(loop_id, 0.0f);
-  }
-
-  if (!is_tree_batch_made_) {
-    polarcontext_invkeys_to_search_.clear();
-    polarcontext_invkeys_to_search_.assign(
-      polarcontext_invkeys_mat_.begin(),
-      polarcontext_invkeys_mat_.end());
-
-    polarcontext_tree_batch_.reset();
-    polarcontext_tree_batch_ = std::make_unique<InvKeyTree>(
-      PC_NUM_RING,
-      polarcontext_invkeys_to_search_,
-      10);
-
-    is_tree_batch_made_ = true;
-  }
-
-  double min_dist = std::numeric_limits<double>::max();
-  int nn_align = 0;
-  int nn_idx = 0;
-
-  const int num_candidates = std::min(
-    num_candidates_from_tree_,
-    static_cast<int>(polarcontext_invkeys_to_search_.size()));
-
-  std::vector<size_t> candidate_indexes(num_candidates);
-  std::vector<float> out_dists_sqr(num_candidates);
-
-  nanoflann::KNNResultSet<float> knnsearch_result(num_candidates);
-  knnsearch_result.init(candidate_indexes.data(), out_dists_sqr.data());
-  polarcontext_tree_batch_->index->findNeighbors(
-    knnsearch_result,
-    current_key.data(),
-    nanoflann::SearchParams(10));
-
-  TicTocLogger timer(debug_timing_);
-  for (int candidate_iter_idx = 0; candidate_iter_idx < num_candidates; ++candidate_iter_idx) {
-    const Eigen::MatrixXd polarcontext_candidate =
-      polarcontexts_[candidate_indexes[candidate_iter_idx]];
-    const auto sc_dist_result = distanceBtnScanContext(current_desc, polarcontext_candidate);
-
-    if (sc_dist_result.first < min_dist) {
-      min_dist = sc_dist_result.first;
-      nn_align = sc_dist_result.second;
-      nn_idx = static_cast<int>(candidate_indexes[candidate_iter_idx]);
+    const double norm1 = v1.norm();
+    const double norm2 = v2.norm();
+    if (norm1 < 1e-10 || norm2 < 1e-10)
+    {
+        return 0.0;
     }
-  }
-  timer.toc("Distance calc");
 
-  if (min_dist < sc_dist_thres_) {
-    loop_id = nn_idx;
-  }
-
-  const float yaw_diff_rad =
-    static_cast<float>(deg2rad(static_cast<double>(nn_align) * PC_UNIT_SECTORANGLE));
-  return std::make_pair(loop_id, yaw_diff_rad);
+    return std::max(-1.0, std::min(1.0, static_cast<double>(v1.dot(v2)) / (norm1 * norm2)));
 }
 
-std::pair<int, float> ScanContextManager::detectLoopClosureID()
+double ScanContextManager::computeCorrelation(
+    const Eigen::MatrixXf& sc1,
+    const Eigen::MatrixXf& sc2)
 {
-  int loop_id = -1;
-
-  if (polarcontext_invkeys_mat_.size() < static_cast<size_t>(num_exclude_recent_ + 1)) {
-    return std::make_pair(loop_id, 0.0f);
-  }
-
-  const auto current_key = polarcontext_invkeys_mat_.back();
-  const auto current_desc = polarcontexts_.back();
-
-  if (tree_making_period_counter_ % tree_making_period_ == 0) {
-    TicTocLogger timer(debug_timing_);
-
-    polarcontext_invkeys_to_search_.clear();
-    polarcontext_invkeys_to_search_.assign(
-      polarcontext_invkeys_mat_.begin(),
-      polarcontext_invkeys_mat_.end() - num_exclude_recent_);
-
-    polarcontext_tree_.reset();
-    polarcontext_tree_ = std::make_unique<InvKeyTree>(
-      PC_NUM_RING,
-      polarcontext_invkeys_to_search_,
-      10);
-
-    timer.toc("Tree construction");
-  }
-  ++tree_making_period_counter_;
-
-  if (!polarcontext_tree_ || polarcontext_invkeys_to_search_.empty()) {
-    return std::make_pair(loop_id, 0.0f);
-  }
-
-  double min_dist = std::numeric_limits<double>::max();
-  int nn_align = 0;
-  int nn_idx = 0;
-
-  const int num_candidates = std::min(
-    num_candidates_from_tree_,
-    static_cast<int>(polarcontext_invkeys_to_search_.size()));
-
-  std::vector<size_t> candidate_indexes(num_candidates);
-  std::vector<float> out_dists_sqr(num_candidates);
-
-  TicTocLogger tree_timer(debug_timing_);
-  nanoflann::KNNResultSet<float> knnsearch_result(num_candidates);
-  knnsearch_result.init(candidate_indexes.data(), out_dists_sqr.data());
-  polarcontext_tree_->index->findNeighbors(
-    knnsearch_result,
-    current_key.data(),
-    nanoflann::SearchParams(10));
-  tree_timer.toc("Tree search");
-
-  TicTocLogger dist_timer(debug_timing_);
-  for (int candidate_iter_idx = 0; candidate_iter_idx < num_candidates; ++candidate_iter_idx) {
-    const Eigen::MatrixXd polarcontext_candidate =
-      polarcontexts_[candidate_indexes[candidate_iter_idx]];
-    const auto sc_dist_result = distanceBtnScanContext(current_desc, polarcontext_candidate);
-
-    if (sc_dist_result.first < min_dist) {
-      min_dist = sc_dist_result.first;
-      nn_align = sc_dist_result.second;
-      nn_idx = static_cast<int>(candidate_indexes[candidate_iter_idx]);
+    if (sc1.rows() != sc2.rows() || sc1.cols() != sc2.cols())
+    {
+        return 0.0;
     }
-  }
-  dist_timer.toc("Distance calc");
 
-  if (min_dist < sc_dist_thres_) {
-    loop_id = nn_idx;
-    std::cout.precision(3);
-    std::cout << "[Loop found] Nearest distance: " << min_dist
-      << " between " << polarcontexts_.size() - 1
-      << " and " << nn_idx << "." << std::endl;
-  } else {
-    std::cout.precision(3);
-    std::cout << "[Not loop] Nearest distance: " << min_dist
-      << " between " << polarcontexts_.size() - 1
-      << " and " << nn_idx << "." << std::endl;
-  }
+    Eigen::VectorXf v1 = Eigen::Map<const Eigen::VectorXf>(
+        sc1.data(), sc1.rows() * sc1.cols());
+    Eigen::VectorXf v2 = Eigen::Map<const Eigen::VectorXf>(
+        sc2.data(), sc2.rows() * sc2.cols());
 
-  const float yaw_diff_rad =
-    static_cast<float>(deg2rad(static_cast<double>(nn_align) * PC_UNIT_SECTORANGLE));
-  return std::make_pair(loop_id, yaw_diff_rad);
+    const float mean1 = v1.mean();
+    const float mean2 = v2.mean();
+    v1.array() -= mean1;
+    v2.array() -= mean2;
+
+    const double norm1 = v1.norm();
+    const double norm2 = v2.norm();
+    if (norm1 < 1e-10 || norm2 < 1e-10)
+    {
+        return 0.0;
+    }
+
+    return std::max(-1.0, std::min(1.0, static_cast<double>(v1.dot(v2)) / (norm1 * norm2)));
 }
 
-}  // namespace sc_pgo
+Eigen::MatrixXf ScanContextManager::shiftedBySector(const Eigen::MatrixXf& sc, int shift)
+{
+    Eigen::MatrixXf shifted(sc.rows(), sc.cols());
+    for (int c = 0; c < sc.cols(); ++c)
+    {
+        const int src_col = (c + shift) % sc.cols();
+        shifted.col(c) = sc.col(src_col);
+    }
+    return shifted;
+}
+
+double ScanContextManager::alignAndCompare(
+    const Eigen::MatrixXf& sc1,
+    const Eigen::MatrixXf& sc2)
+{
+    double best_similarity = -1.0;
+    for (int shift = 0; shift < sc2.cols(); ++shift)
+    {
+        const Eigen::MatrixXf shifted = shiftedBySector(sc2, shift);
+        const double similarity = computeCorrelation(sc1, shifted);
+        best_similarity = std::max(best_similarity, similarity);
+        if (best_similarity > 0.98)
+        {
+            break;
+        }
+    }
+    return std::max(0.0, best_similarity);
+}
+
+std::pair<int, double> ScanContextManager::detectLoopClosureID()
+{
+    last_loop_similarity_ = 0.0;
+
+    const int current_id = static_cast<int>(scan_contexts_.size()) - 1;
+    if (current_id <= loop_exclude_recent_num_)
+    {
+        return {-1, std::numeric_limits<double>::infinity()};
+    }
+
+    const Eigen::MatrixXf& current_sc = scan_contexts_.back();
+    std::vector<std::pair<double, int>> candidates;
+    candidates.reserve(current_id - loop_exclude_recent_num_);
+
+    const int history_end = current_id - loop_exclude_recent_num_;
+    for (int i = 0; i < history_end; ++i)
+    {
+        const double similarity = alignAndCompare(current_sc, scan_contexts_[i]);
+        const double distance = 1.0 - similarity;
+        candidates.emplace_back(distance, i);
+    }
+
+    if (candidates.empty())
+    {
+        return {-1, std::numeric_limits<double>::infinity()};
+    }
+
+    std::sort(candidates.begin(), candidates.end(),
+        [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+
+    const int ratio_count =
+        static_cast<int>(std::ceil(static_cast<double>(candidates.size()) * search_ratio_));
+    const int search_count =
+        std::max(1, std::min(static_cast<int>(candidates.size()),
+                             std::max(loop_candidate_num_, ratio_count)));
+
+    int best_id = -1;
+    double best_distance = std::numeric_limits<double>::infinity();
+    for (int i = 0; i < search_count; ++i)
+    {
+        if (candidates[i].first < best_distance)
+        {
+            best_distance = candidates[i].first;
+            best_id = candidates[i].second;
+        }
+    }
+
+    last_loop_similarity_ = 1.0 - best_distance;
+    if (best_distance <= loop_distance_threshold_)
+    {
+        return {best_id, best_distance};
+    }
+
+    return {-1, best_distance};
+}
+
+double ScanContextManager::lastLoopSimilarity() const
+{
+    return last_loop_similarity_;
+}
+
+size_t ScanContextManager::size() const
+{
+    return scan_contexts_.size();
+}
+
+void ScanContextManager::reset()
+{
+    scan_contexts_.clear();
+    curr_keyframe_id_ = 0;
+    last_loop_similarity_ = 0.0;
+}
+
+}  // namespace dddmr_sc_pgo
