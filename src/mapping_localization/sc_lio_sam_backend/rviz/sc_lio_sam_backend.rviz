@@ -1,0 +1,47 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 1
+      Class: rviz_default_plugins/Path
+      Color: 25; 255; 0
+      Enabled: true
+      Name: Optimized Path
+      Topic:
+        Value: /sc_lio_sam_backend/optimized_path
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/Path
+      Color: 0; 180; 255
+      Enabled: true
+      Name: Raw Keyframe Path
+      Topic:
+        Value: /sc_lio_sam_backend/raw_keyframe_path
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/PointCloud2
+      Color Transformer: Intensity
+      Enabled: true
+      Name: Optimized Map
+      Size (Pixels): 2
+      Size (m): 0.03
+      Topic:
+        Value: /sc_lio_sam_backend/optimized_map
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Loop Markers
+      Topic:
+        Value: /sc_lio_sam_backend/loop_markers
+      Value: true
+  Enabled: true
+  Global Options:
+    Fixed Frame: camera_init
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Value: true

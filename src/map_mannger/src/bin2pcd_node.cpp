@@ -3,9 +3,11 @@
 #include <pcl/point_types.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -16,6 +18,42 @@
 
 namespace
 {
+
+std::string expandUserPath(const std::string & path)
+{
+  if (path.empty() || path[0] != '~') {
+    return path;
+  }
+
+  if (path.size() > 1 && path[1] != '/') {
+    return path;
+  }
+
+  const char * home = std::getenv("HOME");
+  if (home == nullptr || std::string(home).empty()) {
+    return path;
+  }
+
+  if (path.size() <= 2) {
+    return home;
+  }
+
+  return (std::filesystem::path(home) / path.substr(2)).string();
+}
+
+std::string toLower(std::string value)
+{
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+    return static_cast<char>(std::tolower(character));
+  });
+  return value;
+}
+
+bool hasPointCloudContainerExtension(const std::string & input_path)
+{
+  const std::string extension = toLower(std::filesystem::path(input_path).extension().string());
+  return extension == ".ply" || extension == ".pcd";
+}
 
 std::string makeDefaultOutputPath(
   const std::string & input_path,
@@ -47,9 +85,9 @@ public:
   Bin2PcdNode()
   : Node("bin2pcd_node")
   {
-    input_bin_path_ = declare_parameter<std::string>("input_bin_path", "");
-    output_pcd_path_ = declare_parameter<std::string>("output_pcd_path", "");
-    output_dir_ = declare_parameter<std::string>("output_dir", "");
+    input_bin_path_ = expandUserPath(declare_parameter<std::string>("input_bin_path", ""));
+    output_pcd_path_ = expandUserPath(declare_parameter<std::string>("output_pcd_path", ""));
+    output_dir_ = expandUserPath(declare_parameter<std::string>("output_dir", ""));
     fields_per_point_ = declare_parameter<int>("fields_per_point", 4);
     intensity_field_index_ = declare_parameter<int>("intensity_field_index", 3);
     save_binary_ = declare_parameter<bool>("save_binary", true);
@@ -81,6 +119,15 @@ private:
         get_logger(),
         "Parameter input_bin_path is empty. Example: ros2 run map_mannger bin2pcd_node "
         "--ros-args -p input_bin_path:=/path/map.bin");
+      return false;
+    }
+
+    if (hasPointCloudContainerExtension(input_bin_path_)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "input_bin_path points to a PLY/PCD file, but bin2pcd_node expects raw float32 .bin "
+        "data. Pass the original .bin map, or convert PLY to PCD directly with "
+        "`pcl_ply2pcd input.ply output.pcd`.");
       return false;
     }
 

@@ -1,0 +1,13 @@
+*.stl
+*.obj
+*.ply
+*.pcd
+*.npy
+*.pyc
+*.pickle
+*.so
+
+__pycache__/
+build/
+build_noetic/
+install/

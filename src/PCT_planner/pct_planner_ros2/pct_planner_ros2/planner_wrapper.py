@@ -128,6 +128,10 @@ class TomogramPlanner:
 
         self.use_quintic = self.cfg.use_quintic
         self.max_heading_rate = self.cfg.max_heading_rate
+        self.path_z_offset = float(self.cfg.path_z_offset)
+        self.astar_cost_threshold = float(self.cfg.astar_cost_threshold)
+        self.astar_step_cost_weight = float(self.cfg.astar_step_cost_weight)
+        self.optimizer_safe_cost_threshold = float(self.cfg.optimizer_safe_cost_threshold)
 
         self.tomo_dir = Path(self.cfg.tomogram_dir).expanduser()
         self.a_star, self.ele_planner, self.traj_opt = load_planner_modules(
@@ -145,7 +149,7 @@ class TomogramPlanner:
         self.trav = None
         self.elev_g = None
         self.elev_c = None
-        self.a_start_cost_threshold = 20.0
+        self.a_start_cost_threshold = self.astar_cost_threshold
 
         self.start_idx = np.zeros(3, dtype=np.int32)
         self.end_idx = np.zeros(3, dtype=np.int32)
@@ -202,10 +206,10 @@ class TomogramPlanner:
         )
         self.planner.init_map(
             self.a_start_cost_threshold,
-            15,
+            self.optimizer_safe_cost_threshold,
             self.resolution,
             self.n_slice,
-            0.2,
+            self.astar_step_cost_weight,
             trav.reshape(-1, trav.shape[-1]).astype(np.double),
             elev_g.reshape(-1, elev_g.shape[-1]).astype(np.double),
             elev_c.reshape(-1, elev_c.shape[-1]).astype(np.double),
@@ -240,7 +244,13 @@ class TomogramPlanner:
         traj = np.concatenate([traj_raw, layers.reshape(-1, 1)], axis=-1)
         y_idx = (traj.shape[-1] - 1) // 2
         traj_3d = np.stack([traj[:, 0], traj[:, y_idx], heights / self.resolution], axis=1)
-        traj_3d = trans_traj_grid_to_map(self.map_dim, self.center, self.resolution, traj_3d)
+        traj_3d = trans_traj_grid_to_map(
+            self.map_dim,
+            self.center,
+            self.resolution,
+            traj_3d,
+            z_offset=self.path_z_offset,
+        )
 
         return traj_3d
 

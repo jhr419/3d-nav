@@ -8,7 +8,7 @@ pct_start_goal_marker:
     scene: ""
     use_scene_defaults: false
     marker_scale: 0.8
-    sphere_radius: 0.35
+    sphere_radius: 0.175
     publish_on_feedback: true
     publish_initial_poses: true
     publish_marker_array: true

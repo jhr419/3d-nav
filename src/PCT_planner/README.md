@@ -75,6 +75,28 @@ python3 tomography.py --scene Spiral
 
 - The generated tomogram is visualized as ROS PointCloud2 message in RViz and saved in **rsc/tomogram/**.
 
+### ROS2 PCD Preprocessing + Tomography
+
+If the input PCD is tilted, use the integrated ROS2 tomography launch. It can level the point cloud first and then immediately generate the tomogram:
+
+```bash
+colcon build --symlink-install --packages-select pct_planner_ros2
+source install/setup.bash
+ros2 launch pct_planner_ros2 tomography.launch.py rviz:=true
+```
+
+Edit **pct_planner_ros2/config/tomography.yaml** to choose the raw input PCD and processed output PCD:
+
+```yaml
+enable_preprocess: true
+preprocess_input_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_ground.pcd
+preprocess_output_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_leveled.pcd
+pcd_dir: /home/jhr/workspace/PCT_planner/rsc/pcd
+pcd_file: full_map_leveled.pcd
+```
+
+With the configuration above, startup writes **full_map_leveled.pcd** and then writes **full_map_leveled.pickle** under the configured tomogram directory.
+
 ### Trajectory Generation 
 
 After the tomogram is constructed, you can run the trajectory generation example.

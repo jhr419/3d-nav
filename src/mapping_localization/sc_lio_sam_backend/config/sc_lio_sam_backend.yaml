@@ -1,0 +1,65 @@
+sc_lio_sam_backend:
+  ros__parameters:
+    odom_topic: "/Odometry"
+    cloud_topic: "/cloud_registered_body"
+    frontend_map_topic: "/Laser_map"
+    frontend_path_topic: "/path"
+    imu_topic: "/livox/imu"
+
+    map_frame: "map"
+    odom_frame: "camera_init"
+    base_frame: "body"
+    lidar_frame: "body"
+    cloud_frame_mode: "auto"   # auto, local/body/lidar, or odom/world/map
+
+    use_imu: false
+    use_scan_context: true
+    # 长廊场景先默认关闭实时回环，避免误回环把平滑前端轨迹拉成折线。
+    # 确认 raw_keyframe_path 和 optimized_path 基本一致后，再通过 launch 参数或这里改回 true。
+    enable_loop_closure: false
+    enable_pose_graph_optimization: true
+
+    publish_tf: true
+    publish_map_to_odom: true
+    # 关闭回环时直接透传 FAST-LIO 原始地图/轨迹，避免后端关键帧重拼图比前端原图更差。
+    passthrough_frontend_map: true
+    passthrough_frontend_path_when_loop_disabled: true
+
+    keyframe_distance_threshold: 1.0
+    keyframe_angle_threshold_deg: 10.0
+    keyframe_voxel_leaf_size: 0.4
+
+    scan_context_ring_num: 20
+    scan_context_sector_num: 60
+    scan_context_max_radius: 80.0
+    scan_context_lidar_height: 2.0
+    scan_context_exclude_recent_num: 80
+    scan_context_distance_threshold: 0.12
+    scan_context_search_ratio: 0.1
+
+    loop_search_radius: 8.0
+    loop_search_time_diff_threshold: 90.0
+    loop_fitness_score_threshold: 0.08
+    loop_keyframe_search_num: 8
+    loop_detection_period_sec: 1.0
+
+    icp_voxel_leaf_size: 0.3
+    icp_max_correspondence_distance: 5.0
+    icp_max_iterations: 80
+    min_icp_source_points: 300
+    min_icp_target_points: 1000
+    max_loop_translation_correction: 3.0
+    max_loop_rotation_correction_deg: 10.0
+
+    prior_noise_sigmas: [0.01, 0.01, 0.01, 0.01, 0.01, 0.01]
+    odom_noise_sigmas: [0.01, 0.01, 0.01, 0.05, 0.05, 0.05]
+    loop_noise_sigmas: [0.05, 0.05, 0.05, 0.2, 0.2, 0.2]
+    use_robust_loop_noise: true
+    robust_loop_kernel_size: 1.0
+
+    map_publish_period_sec: 3.0
+    map_voxel_leaf_size: 0.3
+
+    max_odom_cloud_time_diff: 0.2
+    save_pcd: false
+    save_directory: "/home/jhr/3dnav_ws/maps/sc_lio_sam"

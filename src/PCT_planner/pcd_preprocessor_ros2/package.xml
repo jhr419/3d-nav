@@ -1,23 +1,19 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>pct_planner_ros2</name>
+  <name>pcd_preprocessor_ros2</name>
   <version>0.1.0</version>
-  <description>ROS 2 wrapper nodes for PCT Planner tomography and trajectory planning.</description>
-  <maintainer email="byangar@connect.ust.hk">PCT Planner Maintainers</maintainer>
+  <description>ROS 2 PCD preprocessing node for PCT Planner tomography maps.</description>
+  <maintainer email="jhr@example.com">PCT Planner Maintainers</maintainer>
   <license>GPL-2.0-only</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
 
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>interactive_markers</exec_depend>
-  <exec_depend>nav_msgs</exec_depend>
-  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-tqdm</exec_depend>
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>rviz2</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>sensor_msgs_py</exec_depend>
   <exec_depend>std_msgs</exec_depend>
-  <exec_depend>visualization_msgs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

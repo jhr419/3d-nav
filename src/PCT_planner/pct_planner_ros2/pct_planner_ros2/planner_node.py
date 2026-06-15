@@ -63,6 +63,10 @@ class PlannerNode(Node):
         self.declare_parameter('planner_lib_dir', PlannerConfig.planner_lib_dir)
         self.declare_parameter('use_quintic', PlannerConfig.use_quintic)
         self.declare_parameter('max_heading_rate', PlannerConfig.max_heading_rate)
+        self.declare_parameter('path_z_offset', PlannerConfig.path_z_offset)
+        self.declare_parameter('astar_cost_threshold', PlannerConfig.astar_cost_threshold)
+        self.declare_parameter('astar_step_cost_weight', PlannerConfig.astar_step_cost_weight)
+        self.declare_parameter('optimizer_safe_cost_threshold', PlannerConfig.optimizer_safe_cost_threshold)
         self.declare_parameter('map_frame', ROSConfig.map_frame)
         self.declare_parameter('path_topic', ROSConfig.path_topic)
         self.declare_parameter('start_x', float('nan'))
@@ -102,6 +106,10 @@ class PlannerNode(Node):
             planner_lib_dir=self.get_parameter('planner_lib_dir').value,
             use_quintic=_as_bool(self.get_parameter('use_quintic').value),
             max_heading_rate=float(self.get_parameter('max_heading_rate').value),
+            path_z_offset=float(self.get_parameter('path_z_offset').value),
+            astar_cost_threshold=float(self.get_parameter('astar_cost_threshold').value),
+            astar_step_cost_weight=float(self.get_parameter('astar_step_cost_weight').value),
+            optimizer_safe_cost_threshold=float(self.get_parameter('optimizer_safe_cost_threshold').value),
         )
         self.path_pub = self.create_publisher(Path, self.get_parameter('path_topic').value, latched_qos())
         self.planner = TomogramPlanner(planner_cfg, logger=self.get_logger())

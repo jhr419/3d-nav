@@ -10,6 +10,13 @@ x y z intensity
 
 如果地图只有 `x y z` 三个字段，可以把 `fields_per_point` 设为 `3`，节点会把 intensity 写为 `0`。
 
+注意：`input_bin_path` 必须是原始 `float32` 二进制 `.bin` 点云，不是 `.ply` 或 `.pcd`。如果已经有 `.ply`
+文件，请直接用 PCL 工具转换：
+
+```bash
+pcl_ply2pcd ~/map_edited.ply ~/map_edited.pcd
+```
+
 ## 使用
 
 ```bash
@@ -27,3 +34,4 @@ ros2 launch map_mannger bin2pcd.launch.py \
 ```
 
 如果不设置 `output_pcd_path`，节点会自动在输入文件旁边保存同名 `.pcd` 文件。
+节点会展开路径参数开头的 `~`，例如 `input_bin_path:=~/map.bin`。

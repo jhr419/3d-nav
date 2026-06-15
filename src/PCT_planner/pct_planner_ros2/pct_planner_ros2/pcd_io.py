@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import numpy as np
 
@@ -142,3 +143,36 @@ def read_pcd_xyz(pcd_path, logger=None):
     except Exception as exc:
         _log_warning(logger, f'Open3D PCD reader unavailable ({exc}); using internal PCD reader.')
         return _read_pcd_xyz_fallback(pcd_path)
+
+
+def _write_pcd_xyz_fallback(pcd_path, points):
+    points = np.asarray(points, dtype=np.float32)
+    Path(pcd_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(pcd_path, 'w', encoding='utf-8') as pcd_file:
+        pcd_file.write('# .PCD v0.7 - Point Cloud Data file format\n')
+        pcd_file.write('VERSION 0.7\n')
+        pcd_file.write('FIELDS x y z\n')
+        pcd_file.write('SIZE 4 4 4\n')
+        pcd_file.write('TYPE F F F\n')
+        pcd_file.write('COUNT 1 1 1\n')
+        pcd_file.write('WIDTH %d\n' % points.shape[0])
+        pcd_file.write('HEIGHT 1\n')
+        pcd_file.write('VIEWPOINT 0 0 0 1 0 0 0\n')
+        pcd_file.write('POINTS %d\n' % points.shape[0])
+        pcd_file.write('DATA ascii\n')
+        np.savetxt(pcd_file, points[:, :3], fmt='%.8f %.8f %.8f')
+
+
+def write_pcd_xyz(pcd_path, points, logger=None):
+    Path(pcd_path).parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import open3d as o3d
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(np.asarray(points, dtype=np.float64)[:, :3])
+        ok = o3d.io.write_point_cloud(str(pcd_path), pcd)
+        if not ok:
+            raise RuntimeError('Open3D failed to write PCD: %s' % pcd_path)
+    except Exception as exc:
+        _log_warning(logger, f'Open3D PCD writer unavailable ({exc}); using internal ASCII PCD writer.')
+        _write_pcd_xyz_fallback(pcd_path, points)

@@ -1,0 +1,99 @@
+pcd_preprocessor_node:
+  ros__parameters:
+    # ============================================================
+    # 输入 / 输出
+    # ============================================================
+    # input_pcd:
+    #   输入 PCD 点云路径。建议使用原始或初步滤波后的全局地图点云。
+    input_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_ground.pcd
+
+    # output_pcd:
+    #   输出处理后的 PCD 路径。建议放在 /home/jhr/workspace/PCT_planner/rsc/pcd/。
+    output_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_leveled.pcd
+
+    # frame_id:
+    #   发布 /processed_points 时使用的坐标系。RViz2 Fixed Frame 需要与这里一致。
+    frame_id: map
+
+    # processed_points_topic:
+    #   处理后点云的 ROS2 topic。RViz2 配置默认订阅该 topic。
+    processed_points_topic: /processed_points
+
+    # publish_period_sec:
+    #   点云重复发布时间，单位秒。重复发布方便 RViz2 后启动时仍能看到点云。
+    publish_period_sec: 1.0
+
+    # ============================================================
+    # 手动刚体变换
+    # ============================================================
+    # enable_manual_transform:
+    #   true 时先应用手动刚体变换。变换顺序为 Rz(yaw) * Ry(pitch) * Rx(roll) * p + t。
+    enable_manual_transform: false
+
+    # roll:
+    #   绕 X 轴旋转角，单位 rad。
+    roll: 0.0
+
+    # pitch:
+    #   绕 Y 轴旋转角，单位 rad。
+    pitch: 0.0
+
+    # yaw:
+    #   绕 Z 轴旋转角，单位 rad。
+    yaw: 0.0
+
+    # tx:
+    #   X 方向平移，单位 m。
+    tx: 0.0
+
+    # ty:
+    #   Y 方向平移，单位 m。
+    ty: 0.0
+
+    # tz:
+    #   Z 方向平移，单位 m。
+    tz: 0.0
+
+    # ============================================================
+    # 自动拉平
+    # ============================================================
+    # enable_auto_level:
+    #   true 时自动拟合低处地面平面，并把平面法向量对齐到 normal_target_axis。
+    #   需要 Open3D；如果 Open3D 缺失，请关闭该选项并使用手动变换。
+    enable_auto_level: true
+
+    # ground_percentile:
+    #   取 z 值最低该百分位以内的点作为候选地面点。值越大，候选点越多但更可能混入非地面。
+    ground_percentile: 15.0
+
+    # max_ground_points:
+    #   候选地面点最大数量。超过时随机采样，避免 RANSAC 太慢。
+    max_ground_points: 50000
+
+    # ransac_distance_threshold:
+    #   RANSAC 平面内点距离阈值，单位 m。噪声较大时可适当增大。
+    ransac_distance_threshold: 0.05
+
+    # ransac_n:
+    #   每次拟合平面使用的点数，通常保持 3。
+    ransac_n: 3
+
+    # ransac_num_iterations:
+    #   RANSAC 迭代次数。复杂或噪声较大场景可增大。
+    ransac_num_iterations: 1000
+
+    # normal_target_axis:
+    #   自动拉平后的目标法向量。PCT-Planner tomography 默认 z 轴竖直，所以通常为 [0, 0, 1]。
+    normal_target_axis: [0.0, 0.0, 1.0]
+
+    # enable_ground_z_shift:
+    #   true 时将拉平后的最低 z 平移到 target_ground_z，方便后续设置 tomography 的 ground_h。
+    enable_ground_z_shift: true
+
+    # target_ground_z:
+    #   enable_ground_z_shift 为 true 时，拉平后点云最低 z 的目标值。
+    target_ground_z: 0.0
+
+    # random_seed:
+    #   候选地面点随机采样种子，保证同一输入下结果可复现。
+    random_seed: 42

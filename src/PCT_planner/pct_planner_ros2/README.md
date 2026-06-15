@@ -44,7 +44,7 @@ mkdir -p ~/ros2_ws/src
 cp -r /home/jhr/workspace/PCT_planner/pct_planner_ros2 ~/ros2_ws/src/
 cd ~/ros2_ws
 rosdep install --from-paths src -y --ignore-src
-colcon build --packages-select pct_planner_ros2
+colcon build --symlink-install --packages-select pct_planner_ros2
 source install/setup.bash
 ```
 
@@ -73,24 +73,98 @@ unzip /home/jhr/workspace/PCT_planner/rsc/pcd/pcd_files.zip -d ~/.ros/pct_planne
 
 ## 运行 Tomography
 
+Tomography 默认从 `config/tomography.yaml` 读取参数。这个 YAML 里包含 PCD 预处理、输出目录、地图几何和 traversability 代价参数。当前默认流程会先把原始点云拉平/对齐到 `full_map_leveled.pcd`，然后立刻用它生成 tomogram：
+
 ```bash
-ros2 launch pct_planner_ros2 tomography.launch.py scene:=Building rviz:=true
+ros2 launch pct_planner_ros2 tomography.launch.py rviz:=true
 ```
 
-也可以显式指定目录：
+也可以指定自己的 YAML：
 
 ```bash
 ros2 launch pct_planner_ros2 tomography.launch.py \
-  scene:=Building \
-  pcd_dir:=/path/to/pcd \
-  tomogram_dir:=/path/to/tomogram \
+  tomography_config:=/path/to/tomography.yaml \
   rviz:=true
+```
+
+当前默认 YAML 已配置为：
+
+```text
+enable_preprocess: true
+preprocess_input_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_ground.pcd
+preprocess_output_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_leveled.pcd
+pcd_dir: /home/jhr/workspace/PCT_planner/rsc/pcd
+pcd_file: full_map_leveled.pcd
+tomogram_dir: /home/jhr/.ros/pct_planner/tomogram
+```
+
+YAML 参数也可以被命令行非空参数覆盖：
+
+```bash
+ros2 launch pct_planner_ros2 tomography.launch.py \
+  preprocess_input_pcd:=/path/to/raw_map.pcd \
+  preprocess_output_pcd:=/path/to/leveled_map.pcd \
+  pcd_file:=leveled_map.pcd \
+  resolution:=0.15 \
+  safe_margin:=0.5 \
+  rviz:=true
+```
+
+完整可调参数包括：
+
+```text
+scene
+pcd_dir
+pcd_file
+tomogram_dir
+benchmark_repeats
+map_frame
+pointcloud_topic
+layer_g_topic_prefix
+layer_c_topic_prefix
+tomogram_topic
+resolution
+ground_h
+slice_dh
+kernel_size
+interval_min
+interval_free
+slope_max
+step_max
+standable_ratio
+cost_barrier
+safe_margin
+inflation
+auto_run
+enable_preprocess
+preprocess_input_pcd
+preprocess_output_pcd
+preprocess_overwrite
+enable_manual_transform
+roll
+pitch
+yaw
+tx
+ty
+tz
+enable_auto_level
+ground_percentile
+max_ground_points
+ransac_distance_threshold
+ransac_n
+ransac_num_iterations
+normal_target_axis
+enable_ground_z_shift
+target_ground_z
+ground_z_shift_mode
+ground_z_shift_percentile
+random_seed
 ```
 
 生成文件会写到：
 
 ```bash
-~/.ros/pct_planner/tomogram/building2_9.pickle
+~/.ros/pct_planner/tomogram/<pcd_file_stem>.pickle
 ```
 
 ## 运行 Planner
@@ -103,54 +177,74 @@ cd /home/jhr/workspace/PCT_planner/planner
 ./build.sh
 ```
 
-然后运行 ROS2 planner。推荐显式传入 `planner_lib_dir`：
+然后运行 ROS2 planner。`planner.launch.py` 默认从 `config/planner.yaml` 读取参数，这个 YAML 同时控制 planner、地图发布和三维选点工具：
+
+```bash
+ros2 launch pct_planner_ros2 planner.launch.py
+```
+
+也可以指定自己的 YAML：
 
 ```bash
 ros2 launch pct_planner_ros2 planner.launch.py \
-  scene:=Building \
-  planner_lib_dir:=/home/jhr/workspace/PCT_planner/planner/lib \
-  rviz:=true
+  planner_config:=/path/to/planner.yaml
 ```
 
-`planner.launch.py` 默认会同时启动 `pct_map_publisher`，从 `~/.ros/pct_planner/pcd` 和 `~/.ros/pct_planner/tomogram` 发布地图：
+`planner.yaml` 的主要段落：
+
+```text
+planner_launch        是否启动地图、三维选点工具、RViz2
+pct_map_publisher    PCD/tomogram 文件、frame、点云发布 topic
+pct_start_goal_marker 三维 start/goal marker 的 topic、默认位置、交互发布方式
+pct_planner          tomogram、planner_lib_dir、路径 topic、自动规划行为
+```
+
+当前默认配置会同时启动 `pct_map_publisher`、`pct_start_goal_marker`、`pct_plan` 和 RViz2，并发布：
 
 ```text
 /global_points
 /tomogram
+/pct_planner/start_pose
+/pct_planner/goal_pose
+/pct_path
 ```
 
 如果 RViz2 里没有看到点云，先确认地图文件存在：
 
 ```bash
-ls ~/.ros/pct_planner/pcd
-ls ~/.ros/pct_planner/tomogram
+ls /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_leveled.pcd
+ls /home/jhr/.ros/pct_planner/tomogram/full_map_leveled.pickle
 ```
 
-也可以显式传入目录或关闭地图发布：
+YAML 参数也可以被命令行非空参数覆盖，适合临时试验：
 
 ```bash
 ros2 launch pct_planner_ros2 planner.launch.py \
-  scene:=Building \
-  pcd_dir:=/path/to/pcd \
-  tomogram_dir:=/path/to/tomogram \
-  publish_map:=true
+  pcd_file:=full_map_ground.pcd \
+  tomogram_file:=full_map_ground \
+  publish_on_feedback:=false \
+  show_rviz:=true
 ```
 
-也可以用环境变量：
-
-```bash
-export PCT_PLANNER_LIB_DIR=/home/jhr/workspace/PCT_planner/planner/lib
-ros2 launch pct_planner_ros2 planner.launch.py scene:=Building rviz:=true
-```
-
-自定义起终点：
+如果只想跑 planner，不打开地图或 RViz2：
 
 ```bash
 ros2 launch pct_planner_ros2 planner.launch.py \
-  scene:=Building \
+  publish_map:=false \
+  use_interactive_start_goal:=false \
+  show_rviz:=false
+```
+
+`rviz:=true/false` 仍可作为旧命令的兼容别名；新配置里优先使用 `show_rviz`。
+
+如果需要用固定二维参数起终点，而不是 RViz2 三维 marker：
+
+```bash
+ros2 launch pct_planner_ros2 planner.launch.py \
+  use_interactive_start_goal:=false \
+  auto_run:=true \
   start_x:=5.0 start_y:=5.0 \
-  goal_x:=-6.0 goal_y:=-1.0 \
-  planner_lib_dir:=/home/jhr/workspace/PCT_planner/planner/lib
+  goal_x:=-6.0 goal_y:=-1.0
 ```
 
 ## 三维交互式起终点
@@ -205,7 +299,9 @@ ros2 topic echo /pct_planner/start_pose
 ros2 topic echo /pct_planner/goal_pose
 ```
 
-默认参数在 `config/start_goal_marker.yaml`，也可以启动时覆盖：
+单独启动时默认参数在 `config/start_goal_marker.yaml`。和 planner 一起启动时，三维选点工具参数来自 `config/planner.yaml` 的 `pct_start_goal_marker` 段。
+
+单独启动也可以覆盖：
 
 ```bash
 ros2 launch pct_planner_ros2 start_goal_marker.launch.py \
@@ -213,15 +309,7 @@ ros2 launch pct_planner_ros2 start_goal_marker.launch.py \
   marker_config:=/path/to/start_goal_marker.yaml
 ```
 
-和 planner 一起启动：
-
-```bash
-ros2 launch pct_planner_ros2 planner.launch.py \
-  scene:=Building \
-  planner_lib_dir:=/home/jhr/workspace/PCT_planner/planner/lib \
-  use_interactive_start_goal:=true \
-  show_rviz:=true
-```
+和 planner 一起启动时直接使用 `planner.launch.py`，参数来自 `config/planner.yaml`。
 
 `pct_plan` 会订阅 `/pct_planner/start_pose` 和 `/pct_planner/goal_pose`，收到二者后按 PoseStamped 的 x/y 转成 tomogram 网格坐标，并用 z 选择最接近的可通行 tomogram 层，然后重新规划并发布 `/pct_path`。姿态会保留在 PoseStamped topic 中，当前 PCT Planner 核心仍不使用起终点朝向参与 A*。
 

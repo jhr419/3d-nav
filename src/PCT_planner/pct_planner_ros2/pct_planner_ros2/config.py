@@ -28,4 +28,8 @@ class PlannerConfig:
     tomogram_dir: str = default_data_dir('tomogram')
     planner_lib_dir: str = ''
     use_quintic: bool = True
-    max_heading_rate: float = 10.0
+    max_heading_rate: float = 6.0
+    path_z_offset: float = 0.0
+    astar_cost_threshold: float = 20.0
+    astar_step_cost_weight: float = 0.5
+    optimizer_safe_cost_threshold: float = 8.0
