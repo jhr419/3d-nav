@@ -1,0 +1,129 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Name: Grid
+      Plane: XY
+      Plane Cell Count: 40
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Frame Timeout: 15
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Update Interval: 0
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Global Points
+      Size (Pixels): 2
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /global_points
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Tomogram
+      Size (Pixels): 2
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /tomogram
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Color: 25; 255; 0
+      Enabled: true
+      Line Style: Lines
+      Line Width: 0.08
+      Name: Planned Path
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /planned_path
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Planned Path Marker
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /planned_path_marker
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Current Start
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /pct_global_planner/current_start_marker
+      Value: true
+    - Class: rviz_default_plugins/InteractiveMarkers
+      Enable Transparency: true
+      Enabled: true
+      Interactive Markers Namespace: pct_start_goal_marker
+      Name: PCT Start/Goal Markers
+      Show Axes: true
+      Show Descriptions: true
+      Show Visual Aids: true
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Start/Goal Preview
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /pct_planner/start_goal_markers
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 30
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Name: Current View
+      Pitch: 0.785
+      Target Frame: <Fixed Frame>
+      Yaw: 0.785
+Window Geometry:
+  Height: 900
+  Width: 1400
