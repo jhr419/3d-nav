@@ -1,10 +1,10 @@
 /**:
     ros__parameters:
-        feature_extract_enable: true     # 是否开启点云特征提取
-        point_filter_num: 3               # 点云降采样间隔，每隔多少个点取一个
+        feature_extract_enable: false     # 是否开启点云特征提取
+        point_filter_num: 1               # 点云降采样间隔，每隔多少个点取一个
         max_iteration: 3                  # EKF 单帧最大迭代次数
-        filter_size_surf: 0.5             # 当前帧平面点体素滤波尺寸，单位 m
-        filter_size_map: 0.5              # 地图点云体素滤波尺寸，单位 m
+        filter_size_surf: 0.05             # 当前帧平面点体素滤波尺寸，单位 m
+        filter_size_map: 0.05              # 地图点云体素滤波尺寸，单位 m
         cube_side_length: 1000.0          # 局部地图立方体边长，单位 m
         runtime_pos_log_enable: false     # 是否记录运行时位姿日志
         map_file_path: "maps/map.pcd"      # 保存 PCD 地图相对路径；相对工作区根目录，maps 和 src 同级；开启高度过滤时同目录输出 full_map.pcd 和 height_filter_map.pcd
@@ -32,11 +32,11 @@
             blind: 0.5                     # 盲区距离，小于该距离的点会被过滤，单位 m
             timestamp_unit: 3              # 点云时间戳单位：0 s，1 ms，2 us，3 ns
             scan_rate: 10                  # 雷达扫描频率，单位 Hz
-            input_rotation_rpy_rad: [0.0, 0.0,  0.0] # 输入雷达和 IMU 同步旋转角 [roll, pitch, yaw]，单位 rad
-            # input_rotation_rpy_rad: [-0.034101, 0.566395, 0.0]
+            # input_rotation_rpy_rad: [0.0, 0.0,  0.0] # 输入雷达和 IMU 同步旋转角 [roll, pitch, yaw]，单位 rad
+            input_rotation_rpy_rad: [-0.034101, 0.566395, 0.0]
         mapping:
-            acc_cov: 0.1                   # 加速度计噪声协方差
-            gyr_cov: 0.1                   # 陀螺仪噪声协方差
+            acc_cov: 0.5                   # 加速度计噪声协方差
+            gyr_cov: 0.5                   # 陀螺仪噪声协方差
             b_acc_cov: 0.0001              # 加速度计零偏随机游走协方差
             b_gyr_cov: 0.0001              # 陀螺仪零偏随机游走协方差
             fov_degree:    360.0           # 建图视场角，单位 deg
@@ -44,7 +44,7 @@
             height_filter_en: true         # 是否开启输出地图高度过滤；发布过滤地图，保存时额外输出 full_map.pcd 和 height_filter_map.pcd
             height_filter_local_map_en: false # 是否同时过滤定位用局部地图；开启可能减少约束并导致漂移
             h_min: -2.0                   # 地图高度过滤下限，body 坐标系 z，单位 m
-            h_max: 0.7                    # 地图高度过滤上限，body 坐标系 z，单位 m
+            h_max: 0.1                    # 地图高度过滤上限，body 坐标系 z，单位 m
             # 减少动态点入图
             dynamic_filter_en: true        # 是否开启近场动态点入图抑制，减少跟随人员等临时物体写入地图
             dynamic_filter_min_range: 0.5  # 动态过滤起始距离，雷达坐标系欧氏距离，单位 m
