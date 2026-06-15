@@ -3,12 +3,14 @@
 import struct
 
 import numpy as np
-import open3d as o3d
+from jie_octomap.open3d_compat import import_open3d
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
+
+o3d = import_open3d()
 
 
 def rgb_to_float(r: int, g: int, b: int) -> float:

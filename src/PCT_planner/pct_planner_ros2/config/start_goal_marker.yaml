@@ -1,0 +1,28 @@
+pct_start_goal_marker:
+  ros__parameters:
+    frame_id: map
+    start_pose_topic: /pct_planner/start_pose
+    goal_pose_topic: /pct_planner/goal_pose
+    marker_array_topic: /pct_planner/start_goal_markers
+    server_namespace: pct_start_goal_marker
+    scene: ""
+    use_scene_defaults: false
+    marker_scale: 0.8
+    sphere_radius: 0.35
+    publish_on_feedback: true
+    publish_initial_poses: true
+    publish_marker_array: true
+
+    default_start_x: 0.0
+    default_start_y: 0.0
+    default_start_z: 0.0
+    default_start_roll: 0.0
+    default_start_pitch: 0.0
+    default_start_yaw: 0.0
+
+    default_goal_x: 5.0
+    default_goal_y: 0.0
+    default_goal_z: 0.0
+    default_goal_roll: 0.0
+    default_goal_pitch: 0.0
+    default_goal_yaw: 0.0

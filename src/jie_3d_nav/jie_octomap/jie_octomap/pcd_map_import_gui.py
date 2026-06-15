@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
+from jie_octomap.open3d_compat import import_open3d
 import rclpy
 from geometry_msgs.msg import PointStamped, PoseStamped
 from nav_msgs.msg import Path as PathMsg
@@ -42,6 +42,9 @@ from std_msgs.msg import String
 from visualization_msgs.msg import Marker
 import vtk
 from vtk.util import numpy_support
+
+o3d = import_open3d()
+
 try:
     from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 except ModuleNotFoundError:
