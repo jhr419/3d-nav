@@ -51,7 +51,7 @@ pct_map_publisher:
     # pcd_dir / pcd_file:
     #   发布到 /global_points 的 PCD 文件。
     #   建议使用已经拉平/滤波后的点云，这样可视化、tomography 和规划使用同一地图。
-    pcd_dir: /home/jhr/workspace/PCT_planner/rsc/pcd
+    pcd_dir: /home/jhr/3dnav_ws/src/PCT_planner/rsc/pcd
     pcd_file: map_leveled.pcd
 
     # tomogram_dir / tomogram_file:

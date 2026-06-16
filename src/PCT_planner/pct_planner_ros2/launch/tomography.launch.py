@@ -197,7 +197,7 @@ def generate_launch_description():
         DeclareLaunchArgument('ground_z_shift_mode', default_value=''),
         DeclareLaunchArgument('ground_z_shift_percentile', default_value=''),
         DeclareLaunchArgument('random_seed', default_value=''),
-        DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('rviz', default_value='true'),
 
         OpaqueFunction(function=launch_setup),
         Node(
