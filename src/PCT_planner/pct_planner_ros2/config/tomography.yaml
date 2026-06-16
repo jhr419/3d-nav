@@ -12,8 +12,8 @@ pct_tomography:
     #   tomography 实际读取的 PCD 目录和文件名。
     #   如果 enable_preprocess=true，这里应该指向 preprocess_output_pcd 的输出文件。
     #   如果 enable_preprocess=false，这里直接作为输入点云。
-    pcd_dir: /home/jhr/3dnav_ws/src/PCT_planner/rsc/pcd
-    pcd_file: map.pcd
+    pcd_dir: /home/jhr/3dnav_ws/src/maps/pct_maps
+    pcd_file: map_leveled_ground.pcd
 
     # tomogram_dir:
     #   输出 tomogram pickle 的目录。
@@ -44,12 +44,12 @@ pct_tomography:
     # preprocess_input_pcd:
     #   原始 PCD 路径。可以写绝对路径，也可以写相对于 pcd_dir 的文件名。
     #   建议保留原始文件，不要直接覆盖。
-    preprocess_input_pcd: /home/jhr/3dnav_ws/src/PCT_planner/rsc/pcd/map.pcd
+    preprocess_input_pcd: /home/jhr/3dnav_ws/src/maps/pct_maps/map_leveled_ground.pcd
 
     # preprocess_output_pcd:
     #   预处理后的 PCD 路径。tomography 后续会读取这个文件。
     #   文件名 stem 会成为 tomogram 输出名，例如 map_leveled.pickle。
-    preprocess_output_pcd: /home/jhr/3dnav_ws/src/PCT_planner/rsc/pcd/map_leveled.pcd
+    preprocess_output_pcd: /home/jhr/3dnav_ws/src/maps/pct_maps/map_leveled.pcd
 
     # preprocess_overwrite:
     #   true  = 每次启动都重新生成 preprocess_output_pcd。
@@ -171,7 +171,7 @@ pct_tomography:
     #     室内/建筑：0.05 - 0.10
     #     大场景：0.10 - 0.20
     #     如果 GPU 显存不够或生成太慢，优先增大该值。
-    resolution: 0.11
+    resolution: 0.12
 
     # ground_h:
     #   地图最低地面高度基准，单位 m。
@@ -241,7 +241,7 @@ pct_tomography:
     #   越大：越保守，要求附近更多平坦格。
     #   越小：更容易通过破碎区域。
     #   建议：0.15 - 0.35；点云噪声大时可先降到 0.15。
-    standable_ratio: 0.02
+    standable_ratio: 0.01
 
     # cost_barrier:
     #   障碍/不可通行代价。

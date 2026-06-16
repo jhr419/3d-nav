@@ -51,15 +51,15 @@ pct_map_publisher:
     # pcd_dir / pcd_file:
     #   发布到 /global_points 的 PCD 文件。
     #   建议使用已经拉平/滤波后的点云，这样可视化、tomography 和规划使用同一地图。
-    pcd_dir: /home/jhr/3dnav_ws/src/PCT_planner/rsc/pcd
-    pcd_file: map_leveled.pcd
+    pcd_dir: /home/jhr/3dnav_ws/src/maps/pct_maps
+    pcd_file: map_leveled_ground.pcd
 
     # tomogram_dir / tomogram_file:
     #   发布到 /tomogram 的 tomogram pickle 文件。
     #   tomogram_file 不需要写 .pickle 后缀。
     #   通常应与 tomography 使用的 pcd_file 文件名 stem 保持一致。
     tomogram_dir: /home/jhr/.ros/pct_planner/tomogram
-    tomogram_file: map_leveled
+    tomogram_file: map_leveled_ground
 
     # map_frame:
     #   发布 PointCloud2 时使用的 frame_id。
@@ -132,7 +132,7 @@ pct_start_goal_marker:
     # publish_initial_poses:
     #   true  = 节点启动后立即发布默认起点/终点。
     #   false = 等待手动拖动或菜单发布。
-    # 自定义地图建议 false，避免刚启动就用旧默认点规划。
+    # 自定义地图建议 false，避免刚启动就用旧默认点规划。不可以
     publish_initial_poses: false
 
     # publish_marker_array:
@@ -213,7 +213,7 @@ pct_planner:
     # 建议：
     #   路径贴近障碍物时可降到 12.0 - 18.0。
     #   地图狭窄、频繁规划失败时可升到 20.0 - 30.0。
-    astar_cost_threshold: 20.0
+    astar_cost_threshold: 25.0
 
     # astar_step_cost_weight:
     #   A* 搜索时地图代价参与路径长度评分的权重。

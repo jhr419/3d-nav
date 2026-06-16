@@ -20,7 +20,7 @@ Panels:
     Expanded:
       - /Current View1
     Name: Views
-    Splitter Ratio: 0.5
+    Splitter Ratio: 0.05
   - Class: rviz_common/Time
     Experimental: false
     Name: Time
