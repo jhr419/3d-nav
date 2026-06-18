@@ -1,0 +1,91 @@
+pct_global_planner_node:
+  ros__parameters:
+    map_frame: "map"
+    base_frame: "base_link"
+    use_tf_start: true
+    start_source: "tf"
+    start_pose_topic: "/pct_planner/start_pose"
+    odom_topic: "/odom"
+    tf_lookup_timeout: 0.25
+
+    goal_pose_topic: "/goal_pose_3d"
+    goal_point_topic: "/goal_point_3d"
+    rviz_2d_goal_topic: "/goal_pose"
+    pct_marker_goal_pose_topic: "/pct_planner/goal_pose"
+    default_goal_z: 0.0
+
+    map_source: "tomogram"
+    map_file: "maps/map_preprocessed.pcd"
+    pcd_file: "maps/map_preprocessed.pcd"
+    pointcloud_topic: "/cloud_registered"
+    use_static_map_file: true
+
+    scene: "Building"
+    tomogram_file: "map_preprocessed"
+    tomogram_dir: "maps/tomogram"
+    planner_lib_dir: "src/map_process/PCT_planner/planner/lib"
+    pct_ros2_source_dir: "src/map_process/PCT_planner/pct_planner_ros2"
+    use_quintic: true
+    max_heading_rate: 6.0
+    path_z_offset: 0.0
+    astar_cost_threshold: 20.0
+    astar_step_cost_weight: 0.65
+    optimizer_safe_cost_threshold: 8.0
+    min_direct_path_distance: 0.35
+
+    start_z_override_enabled: false
+    start_z_override: 0.0
+
+    enable_path_smoothing: true
+    enable_path_resampling: true
+    path_resample_resolution: 0.2
+    max_path_z_jump: 0.4
+    remove_duplicate_points: true
+    smoothing_passes: 1
+
+    publish_path_topic: "/planned_path"
+    publish_alias_path_topic: "/path"
+    publish_marker_topic: "/planned_path_marker"
+    status_topic: "/pct_global_planner/status"
+    marker_line_width: 0.08
+
+    publish_current_start: true
+    current_start_pose_topic: "/pct_global_planner/current_start_pose"
+    current_start_marker_topic: "/pct_global_planner/current_start_marker"
+    current_start_publish_rate: 5.0
+    current_start_marker_scale: 0.35
+    mirror_current_start_to_start_pose_topic: false
+
+    auto_replan_on_start_update: true
+    start_update_min_distance: 0.5
+
+pct_global_map_publisher:
+  ros__parameters:
+    map_frame: "map"
+    pcd_dir: "maps"
+    pcd_file: "map_preprocessed.pcd"
+    tomogram_dir: "maps/tomogram"
+    tomogram_file: "map_preprocessed"
+    pointcloud_topic: "/global_points"
+    tomogram_topic: "/tomogram"
+    publish_raw_cloud: true
+    publish_tomogram_cloud: true
+
+pct_start_goal_marker:
+  ros__parameters:
+    frame_id: "map"
+    goal_pose_topic: "/pct_planner/goal_pose"
+    goal_pose_alias_topic: "/goal_pose_3d"
+    marker_array_topic: "/pct_planner/start_goal_markers"
+    server_namespace: "pct_start_goal_marker"
+    marker_scale: 0.8
+    sphere_radius: 0.175
+    publish_on_feedback: true
+    publish_initial_pose: false
+    publish_marker_array: true
+    default_goal_x: 5.0
+    default_goal_y: 11.0
+    default_goal_z: 0.0
+    default_goal_roll: 0.0
+    default_goal_pitch: 0.0
+    default_goal_yaw: 0.0

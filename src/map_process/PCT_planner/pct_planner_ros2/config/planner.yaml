@@ -1,0 +1,286 @@
+# 本文件由 `planner.launch.py` 读取。
+#
+# 启动完整交互式规划链路：
+#   1. pct_map_publisher       发布原始/预处理 PCD 点云和 tomogram 点云，供 RViz2 显示
+#   2. pct_start_goal_marker   发布可在 RViz2 中三维拖拽的起点/终点交互标记
+#   3. pct_planner             调用 PCT-Planner，发布全局路径 /pct_path
+#   4. rviz2                   可选的可视化界面
+
+planner_launch:
+  ros__parameters:
+    # ============================================================
+    # 启动开关
+    # ============================================================
+    # publish_map:
+    #   true  = 启动 pct_map_publisher，发布 /global_points 和 /tomogram。
+    #   false = 只启动 planner/选点工具；适合已有其他节点发布地图的情况。
+    publish_map: true
+
+    # use_interactive_start_goal:
+    #   true  = 启动三维可拖拽的 start/goal 交互标记节点。
+    #   false = planner 只使用参数 start_x/start_y/goal_x/goal_y，或外部发布的 PoseStamped。
+    use_interactive_start_goal: true
+
+    # show_rviz:
+    #   true  = 使用 pct_ros2.rviz 打开 RViz2。
+    #   false = 无界面启动。
+    # 建议：
+    #   如果已经手动打开 RViz2，可设为 false，避免重复启动 RViz2。
+    show_rviz: true
+
+    # rviz:
+    #   旧命令兼容别名。rviz=true 或 show_rviz=true 都会打开 RViz2。
+    rviz: false
+
+    # rviz_config:
+    #   留空时使用 pct_planner_ros2/rviz/pct_ros2.rviz。
+    #   如果需要自定义 RViz 布局，可填写绝对路径。
+    rviz_config: ""
+
+
+pct_map_publisher:
+  ros__parameters:
+    # ============================================================
+    # 地图可视化输入
+    # ============================================================
+    # scene:
+    #   当 pcd_file 或 tomogram_file 留空时，用该场景选择默认文件名。
+    #   可选默认场景：Spiral / Building / Plaza。
+    scene: Building
+
+    # pcd_dir / pcd_file:
+    #   发布到 /global_points 的 PCD 文件。
+    #   建议使用已经拉平/滤波后的点云，这样可视化、tomography 和规划使用同一地图。
+    pcd_dir: maps
+    pcd_file: map_preprocessed.pcd
+
+    # tomogram_dir / tomogram_file:
+    #   发布到 /tomogram 的 tomogram pickle 文件。
+    #   tomogram_file 不需要写 .pickle 后缀。
+    #   通常应与 tomography 使用的 pcd_file 文件名 stem 保持一致。
+    tomogram_dir: maps/tomogram
+    tomogram_file: map_preprocessed
+
+    # map_frame:
+    #   发布 PointCloud2 时使用的 frame_id。
+    #   RViz2 的 Fixed Frame 应与这里一致。
+    map_frame: map
+
+    # pointcloud_topic:
+    #   原始/预处理 PCD 可视化 topic。
+    pointcloud_topic: /global_points
+
+    # tomogram_topic:
+    #   可通行代价/tomogram 可视化 topic。
+    tomogram_topic: /tomogram
+
+    # publish_raw_cloud / publish_tomogram_cloud:
+    #   可分别关闭 PCD 点云或 tomogram 点云发布。
+    #   大地图中如果 RViz2 卡顿，可以先关闭原始点云 publish_raw_cloud。
+    publish_raw_cloud: true
+    publish_tomogram_cloud: true
+
+
+pct_start_goal_marker:
+  ros__parameters:
+    # ============================================================
+    # 交互标记坐标系和 topic
+    # ============================================================
+    # frame_id:
+    #   交互标记所在坐标系，应与 map_frame 保持一致。
+    frame_id: map
+
+    # start_pose_topic / goal_pose_topic:
+    #   发布给 pct_planner 使用的 PoseStamped 起点/终点 topic。
+    start_pose_topic: /pct_planner/start_pose
+    goal_pose_topic: /pct_planner/goal_pose
+
+    # marker_array_topic:
+    #   非交互式 MarkerArray 兜底显示 topic。
+    #   当 RViz InteractiveMarkers 没连上时，可用它检查小球位置。
+    marker_array_topic: /pct_planner/start_goal_markers
+
+    # server_namespace:
+    #   RViz2 的 InteractiveMarkers 显示项需要设置：
+    #     Interactive Markers Namespace = pct_start_goal_marker
+    server_namespace: pct_start_goal_marker
+
+    # scene / use_scene_defaults:
+    #   use_scene_defaults=true 时，marker 初始 x/y 使用场景默认起终点。
+    #   自定义地图通常建议设为 false，并在下面显式设置默认位置。
+    scene: Building
+    use_scene_defaults: false
+
+    # marker_scale:
+    #   交互控制柄整体尺寸。
+    #   如果 RViz2 中拖拽/旋转控制柄太小，可以适当增大。
+    marker_scale: 0.8
+
+    # sphere_radius:
+    #   绿色/红色可视化小球半径，单位 m。
+    #   当前 0.175 表示小球直径为 0.35m。
+    #   大地图中看不清可增大；遮挡地图细节时可减小。
+    sphere_radius: 0.175
+
+    # publish_on_feedback:
+    #   true  = 拖动/旋转过程中持续发布 PoseStamped，并触发实时重规划。
+    #   false = 只通过右键菜单发布。
+    # 建议：
+    #   如果规划较慢，设为 false，摆好点后右键选择 "Publish Both"。
+    publish_on_feedback: true
+
+    # publish_initial_poses:
+    #   true  = 节点启动后立即发布默认起点/终点。
+    #   false = 等待手动拖动或菜单发布。
+    # 自定义地图建议 false，避免刚启动就用旧默认点规划。不可以
+    publish_initial_poses: false
+
+    # publish_marker_array:
+    #   发布 /pct_planner/start_goal_markers，作为普通 MarkerArray 兜底显示。
+    publish_marker_array: true
+
+    # ============================================================
+    # 默认起点/终点位姿
+    # ============================================================
+    # use_scene_defaults=false 时使用这些默认值。
+    # 单位：位置为 m，姿态为 rad。
+    # 建议：
+    #   将默认点放在地图中心附近，RViz2 打开后更容易找到 marker。
+    default_start_x: 0.0
+    default_start_y: 0.21
+    default_start_z: 0.0
+    default_start_roll: 0.0
+    default_start_pitch: 0.0
+    default_start_yaw: 0.0
+
+    default_goal_x: 5.0
+    default_goal_y: 11.0
+    default_goal_z: 0.0
+    default_goal_roll: 0.0
+    default_goal_pitch: 0.0
+    default_goal_yaw: 0.0
+
+
+pct_planner:
+  ros__parameters:
+    # ============================================================
+    # Planner 数据源
+    # ============================================================
+    # scene:
+    #   当 tomogram_file 留空时，用该场景选择默认 tomogram。
+    scene: Building
+
+    # tomogram_file:
+    #   输入 tomogram 文件名，不包含 .pickle 后缀。
+    #   必须能在 tomogram_dir 中找到对应文件，例如：
+    #     maps/tomogram/map_preprocessed.pickle
+    tomogram_file: map_preprocessed
+
+    # tomogram_dir:
+    #   tomography.launch.py 生成的 tomogram pickle 所在目录。
+    tomogram_dir: maps/tomogram
+
+    # planner_lib_dir:
+    #   原 PCT Planner 编译后的 PyBind/C++ 库目录。
+    #   如果留空，pct_planner 还会尝试读取 PCT_PLANNER_LIB_DIR 和仓库内 planner/lib。
+    planner_lib_dir: src/map_process/PCT_planner/planner/lib
+
+    # use_quintic:
+    #   true  = 使用 quintic 轨迹优化封装。
+    #   false = 使用另一套优化器。
+    # 除非需要对比优化器效果，否则建议保持 true。
+    use_quintic: true
+
+    # max_heading_rate:
+    #   传给原始 PCT 轨迹优化器的最大航向变化率。
+    #   值越大允许更急的方向变化；值越小路径转向更平滑。
+    # 建议：
+    #   出现急转弯时，优先减小到 4.0 - 8.0。
+    #   如果路径变得过于僵硬、窄通道无法通过，适当增大到 8.0 - 12.0。
+    #   20.0 通常过于宽松，容易允许接近折线的转向。
+    max_heading_rate: 6.0
+
+    # path_z_offset:
+    #   发布 /pct_path 时在 tomogram 地面高度上额外增加的 z 偏移，单位 m。
+    #   0.0 表示路径贴在地面层上。
+    #   如果 RViz2 中路径线被点云遮住，可以临时设为 0.02 - 0.05 仅用于可视化。
+    #   原 ROS1 转换里曾固定加 0.5m，会导致路径悬在地面上；这里默认不再加高。
+    path_z_offset: 0.0
+
+    # astar_cost_threshold:
+    #   A* 搜索阶段允许进入的最大地图代价。
+    #   值越小路径越远离高代价/障碍边缘；值太小可能导致 path not found。
+    # 建议：
+    #   路径贴近障碍物时可降到 12.0 - 18.0。
+    #   地图狭窄、频繁规划失败时可升到 20.0 - 30.0。
+    astar_cost_threshold: 25.0
+
+    # astar_step_cost_weight:
+    #   A* 搜索时地图代价参与路径长度评分的权重。
+    #   值越大，A* 越倾向绕开高代价区域，初始路径更保守、更少急折线。
+    #   值太大可能导致路径绕远，或窄通道中找不到路。
+    # 建议：
+    #   急转弯、贴障碍时可设为 0.5 - 0.8。
+    #   路径绕得太远或搜索失败时降到 0.2 - 0.4。
+    astar_step_cost_weight: 0.65
+
+    # optimizer_safe_cost_threshold:
+    #   轨迹优化阶段认为“安全”的地图代价阈值。
+    #   值越小，优化器越早把路径从障碍物/高代价区推开。
+    # 建议：
+    #   路径贴障碍时可降到 5.0 - 8.0。
+    #   地图很窄、优化后路径绕不开时可升到 8.0 - 12.0。
+    optimizer_safe_cost_threshold: 8.0
+
+    # map_frame / path_topic:
+    #   发布全局路径时使用的坐标系和 topic。
+    map_frame: map
+    path_topic: /pct_path
+
+    # ============================================================
+    # 起点/终点行为
+    # ============================================================
+    # start_x/start_y/goal_x/goal_y:
+    #   可选的二维参数起点/终点兜底值。
+    #   使用 .nan 时保持场景默认值，直到交互 marker 发布 PoseStamped。
+    start_x: 0.91
+    start_y: 2.83
+    # start_z: 0.0
+    goal_x: 1.24
+    goal_y: 6.07
+    # goal_z: 3.77
+
+    # start_pose_topic / goal_pose_topic:
+    #   来自 pct_start_goal_marker 的 PoseStamped topic。
+    #   x/y 会转换为 tomogram 栅格坐标；z 用于选择最接近的可通行 tomogram 层。
+    start_pose_topic: /pct_planner/start_pose
+    goal_pose_topic: /pct_planner/goal_pose
+
+    # plan_on_pose_update:
+    #   true  = 同时收到 start 和 goal PoseStamped 后自动重规划。
+    #   false = 只接收位姿，不自动规划。
+    # 建议：
+    #   如果后续想加显式按钮/服务触发规划，可设为 false。
+    plan_on_pose_update: true
+
+    # auto_run:
+    #   true  = 启动后立即使用参数/场景默认起终点规划一次。
+    #   false = 等待交互式起点/终点 PoseStamped。
+    # 自定义地图和手动选点建议 false。
+    auto_run: false
+
+    # ============================================================
+    # 调参建议
+    # ============================================================
+    # 1. planner 比 marker 先启动：
+    #    这是正常的。起终点 topic 使用 transient-local QoS，后发布的最新起终点仍可被 planner 接收。
+    #
+    # 2. 拖动 marker 时频繁规划，感觉很慢：
+    #    将 pct_start_goal_marker.publish_on_feedback 设为 false，
+    #    摆好起终点后右键选择 "Publish Both"。
+    #
+    # 3. 规划失败，提示 path not found：
+    #    先看日志中的网格转换信息：
+    #      Start grid: idx=[layer=..., col=..., row=...], cost=..., ground=..., ceiling=...
+    #      Goal grid:  idx=[layer=..., col=..., row=...], cost=..., ground=..., ceiling=...
+    #    如果 cost 很高或点超出地图范围，移动 marker，或重新生成/调整 tomography。

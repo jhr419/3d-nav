@@ -6,7 +6,7 @@ paths:
   tomogram_dir: "maps/tomogram"
   tomogram_file: "map_preprocessed"
   tomogram_pickle: "maps/tomogram/map_preprocessed.pickle"
-  planner_lib_dir: "src/PCT_planner/planner/lib"
+  planner_lib_dir: "src/map_process/PCT_planner/planner/lib"
 
 modules:
   mapping:
