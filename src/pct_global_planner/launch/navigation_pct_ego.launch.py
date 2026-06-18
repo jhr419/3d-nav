@@ -40,22 +40,22 @@ def generate_launch_description():
     )
     map_file_arg = DeclareLaunchArgument(
         "map_file",
-        default_value="/home/jhr/3dnav_ws/maps/result_cleaned.bt",
+        default_value="maps/map_preprocessed.pcd",
         description="Metadata/static map file path. PCT planning uses tomogram_file.",
     )
     tomogram_file_arg = DeclareLaunchArgument(
         "tomogram_file",
-        default_value="map_leveled",
+        default_value="map_preprocessed",
         description="PCT tomogram pickle stem or absolute .pickle path",
     )
     tomogram_dir_arg = DeclareLaunchArgument(
         "tomogram_dir",
-        default_value="/home/jhr/.ros/pct_planner/tomogram",
+        default_value="maps/tomogram",
         description="Directory containing PCT tomogram pickle files",
     )
     planner_lib_dir_arg = DeclareLaunchArgument(
         "planner_lib_dir",
-        default_value="/home/jhr/3dnav_ws/src/PCT_planner/planner/lib",
+        default_value="src/PCT_planner/planner/lib",
         description="PCT Planner core library directory",
     )
 
@@ -104,7 +104,7 @@ def generate_launch_description():
             tomogram_dir_arg,
             planner_lib_dir_arg,
             LogInfo(msg=["PCT Global Planner publishes nav_msgs/Path on /planned_path in frame map."]),
-            LogInfo(msg=["EGO local planner subscribes global_path_topic=/planned_path and publishes /cmd_vel."]),
+            LogInfo(msg=["EGO local planner subscribes global_path_topic=/planned_path and publishes /cmd_vel_nav."]),
             LogInfo(msg=["FAST-LIO/ICP localization is not launched here; provide TF map->base_link externally."]),
             pct_node,
             ego_node,

@@ -41,7 +41,7 @@ python3 -m pip install cupy-cuda11x
 
 ```bash
 mkdir -p ~/ros2_ws/src
-cp -r /home/jhr/workspace/PCT_planner/pct_planner_ros2 ~/ros2_ws/src/
+cp -r src/PCT_planner/pct_planner_ros2 <your_ros2_ws>/src/
 cd ~/ros2_ws
 rosdep install --from-paths src -y --ignore-src
 colcon build --symlink-install --packages-select pct_planner_ros2
@@ -66,7 +66,7 @@ mkdir -p ~/.ros/pct_planner/tomogram
 当前仓库自带 zip 里有 `building2_9.pcd` 和 `plaza3_10.pcd`：
 
 ```bash
-unzip /home/jhr/workspace/PCT_planner/rsc/pcd/pcd_files.zip -d ~/.ros/pct_planner/pcd/
+unzip src/PCT_planner/rsc/pcd/pcd_files.zip -d maps/
 ```
 
 `Spiral` 需要额外下载 `spiral0.3_2.pcd` 并放到同一目录。
@@ -91,11 +91,11 @@ ros2 launch pct_planner_ros2 tomography.launch.py \
 
 ```text
 enable_preprocess: true
-preprocess_input_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_ground.pcd
-preprocess_output_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_leveled.pcd
-pcd_dir: /home/jhr/workspace/PCT_planner/rsc/pcd
+preprocess_input_pcd: maps/map_origin.pcd
+preprocess_output_pcd: maps/map_preprocessed.pcd
+pcd_dir: maps
 pcd_file: full_map_leveled.pcd
-tomogram_dir: /home/jhr/.ros/pct_planner/tomogram
+tomogram_dir: maps/tomogram
 ```
 
 YAML 参数也可以被命令行非空参数覆盖：
@@ -172,7 +172,7 @@ random_seed
 先构建原项目的 C++/PyBind 规划核心：
 
 ```bash
-cd /home/jhr/workspace/PCT_planner/planner
+cd src/PCT_planner/planner
 ./build_thirdparty.sh
 ./build.sh
 ```
@@ -212,8 +212,8 @@ pct_planner          tomogram、planner_lib_dir、路径 topic、自动规划行
 如果 RViz2 里没有看到点云，先确认地图文件存在：
 
 ```bash
-ls /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_leveled.pcd
-ls /home/jhr/.ros/pct_planner/tomogram/full_map_leveled.pickle
+ls maps/map_preprocessed.pcd
+ls maps/tomogram/map_preprocessed.pickle
 ```
 
 YAML 参数也可以被命令行非空参数覆盖，适合临时试验：

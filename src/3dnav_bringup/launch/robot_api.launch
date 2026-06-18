@@ -1,0 +1,10 @@
+<launch>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="launch_control" default="true"/>
+  <arg name="launch_twist_bridge" default="true"/>
+  <include file="$(find-pkg-share nav3d_bringup)/launch/robot_api_impl.launch.py">
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="launch_control" value="$(var launch_control)"/>
+    <arg name="launch_twist_bridge" value="$(var launch_twist_bridge)"/>
+  </include>
+</launch>

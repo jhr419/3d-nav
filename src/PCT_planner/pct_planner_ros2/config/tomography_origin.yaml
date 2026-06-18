@@ -12,13 +12,13 @@ pct_tomography:
     #   tomography 实际读取的 PCD 目录和文件名。
     #   如果 enable_preprocess=true，这里应该指向 preprocess_output_pcd 的输出文件。
     #   如果 enable_preprocess=false，这里直接作为输入点云。
-    pcd_dir: /home/jhr/3dnav_ws/src/maps/pct_maps
-    pcd_file: map_leveled_ground.pcd
+    pcd_dir: maps
+    pcd_file: map_preprocessed.pcd
 
     # tomogram_dir:
     #   输出 tomogram pickle 的目录。
     #   输出文件名会自动使用 pcd_file 的 stem，例如 mapleveled.pickle。
-    tomogram_dir: /home/jhr/.ros/pct_planner/tomogram
+    tomogram_dir: maps/tomogram
 
     # benchmark_repeats:
     #   只影响耗时统计平均次数，不改变地图结果。
@@ -44,12 +44,12 @@ pct_tomography:
     # preprocess_input_pcd:
     #   原始 PCD 路径。可以写绝对路径，也可以写相对于 pcd_dir 的文件名。
     #   建议保留原始文件，不要直接覆盖。
-    preprocess_input_pcd: /home/jhr/3dnav_ws/src/maps/pct_maps/map_leveled_ground.pcd
+    preprocess_input_pcd: maps/map_origin.pcd
 
     # preprocess_output_pcd:
     #   预处理后的 PCD 路径。tomography 后续会读取这个文件。
     #   文件名 stem 会成为 tomogram 输出名，例如 map_leveled.pickle。
-    preprocess_output_pcd: /home/jhr/3dnav_ws/src/maps/pct_maps/map_leveled.pcd
+    preprocess_output_pcd: maps/map_preprocessed.pcd
 
     # preprocess_overwrite:
     #   true  = 每次启动都重新生成 preprocess_output_pcd。

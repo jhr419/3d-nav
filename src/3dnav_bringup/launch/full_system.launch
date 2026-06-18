@@ -1,0 +1,16 @@
+<launch>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="mapping" default="false"/>
+  <arg name="navigation" default="true"/>
+  <arg name="rviz" default="true"/>
+  <arg name="start_livox_driver" default="true"/>
+  <arg name="start_fastlio" default="true"/>
+  <include file="$(find-pkg-share nav3d_bringup)/launch/full_system_impl.launch.py">
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="mapping" value="$(var mapping)"/>
+    <arg name="navigation" value="$(var navigation)"/>
+    <arg name="rviz" value="$(var rviz)"/>
+    <arg name="start_livox_driver" value="$(var start_livox_driver)"/>
+    <arg name="start_fastlio" value="$(var start_fastlio)"/>
+  </include>
+</launch>

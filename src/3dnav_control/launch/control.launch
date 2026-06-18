@@ -1,0 +1,14 @@
+<launch>
+  <arg name="config_file" default="$(find-pkg-share nav3d_control)/config/nav_execution_controller.yaml"/>
+  <arg name="use_sim_time" default="false"/>
+
+  <node pkg="nav3d_control" exec="nav_execution_controller_node" name="nav_execution_controller_node" output="screen">
+    <param from="$(var config_file)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <node pkg="nav3d_control" exec="cmd_vel_gate_node" name="cmd_vel_gate_node" output="screen">
+    <param from="$(var config_file)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+</launch>

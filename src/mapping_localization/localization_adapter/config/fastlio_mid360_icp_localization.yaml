@@ -2,11 +2,12 @@ icp_localization_node:
   ros__parameters:
     # Backward-compatible fallback. If the two map paths below are empty, this
     # path is used for both visualization and ICP.
-    map_pcd_path: "maps/map.pcd"
-    # Ground map shown in RViz for manual initial pose selection.
-    visualization_map_pcd_path: "maps/map_ground.pcd"
-    # Non-ground / feature map used as the ICP registration target.
-    icp_map_pcd_path: "maps/map.pcd"
+    map_pcd_path: "maps/map_preprocessed.pcd"
+    # Optional lightweight map shown in RViz. If it is missing, the node falls
+    # back to the ICP/preprocessed map.
+    visualization_map_pcd_path: "maps/map_visualization.pcd"
+    # Map used as the ICP registration target.
+    icp_map_pcd_path: "maps/map_preprocessed.pcd"
 
     # map_pcd_path: "maps/glim_office_csf_map/full_map.pcd"
     # # Ground map shown in RViz for manual initial pose selection.

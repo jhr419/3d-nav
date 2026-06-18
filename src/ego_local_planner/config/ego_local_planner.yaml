@@ -13,7 +13,7 @@ ego_local_planner_node:
     pointcloud_map_frame_aliases: "camera_init"
     require_fresh_cloud: true
     odom_topic: "/Odometry"
-    cmd_vel_topic: "/cmd_vel"
+    cmd_vel_topic: "/cmd_vel_nav"
 
     ego_local_trajectory_topic: "/ego_local_trajectory"
     ego_local_trajectory_marker_topic: "/ego_local_trajectory_marker"

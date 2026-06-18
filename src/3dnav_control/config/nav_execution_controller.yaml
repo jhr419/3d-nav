@@ -1,0 +1,16 @@
+nav_execution_controller_node:
+  ros__parameters:
+    planned_path_topic: "/planned_path"
+    path_clear_topic: "/planned_path"
+    execution_state_topic: "/nav3d/execution_state"
+    allow_start_without_path: false
+    auto_start_on_new_path: false
+
+cmd_vel_gate_node:
+  ros__parameters:
+    input_cmd_vel_topic: "/cmd_vel_nav"
+    output_cmd_vel_topic: "/cmd_vel"
+    execution_state_topic: "/nav3d/execution_state"
+    pass_states: ["RUNNING"]
+    zero_publish_period_s: 0.2
+    publish_zero_on_blocked_command: true

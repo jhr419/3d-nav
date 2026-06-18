@@ -89,9 +89,9 @@ Edit **pct_planner_ros2/config/tomography.yaml** to choose the raw input PCD and
 
 ```yaml
 enable_preprocess: true
-preprocess_input_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_ground.pcd
-preprocess_output_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_leveled.pcd
-pcd_dir: /home/jhr/workspace/PCT_planner/rsc/pcd
+preprocess_input_pcd: maps/map_origin.pcd
+preprocess_output_pcd: maps/map_preprocessed.pcd
+pcd_dir: maps
 pcd_file: full_map_leveled.pcd
 ```
 

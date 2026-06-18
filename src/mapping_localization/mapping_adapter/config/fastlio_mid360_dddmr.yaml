@@ -16,7 +16,7 @@ fastlio_dddmr_adapter:
 
     # Directory consumed by dddmr_navigation / mcl_3dl:
     # poses.pcd, edges.pcd, pcd/N_*.pcd. Export map.pcd/ground.pcd manually.
-    mapping_dir: "/home/jhr/jhr/fast_ws/src/mapping_adapter/maps"
+    mapping_dir: "maps/fastlio_dddmr"
     save_on_shutdown: false
 
     # FAST-LIO /cloud_registered_body and /Odometry are already in FAST-LIO's

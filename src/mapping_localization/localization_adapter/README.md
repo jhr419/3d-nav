@@ -7,8 +7,8 @@ relocalizing a robot against an existing FAST-LIO / mapping_adapter map.
 
 ```bash
 ros2 launch localization_adapter fastlio_icp_localization.launch \
-  visualization_map_pcd_path:=/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/ground.pcd \
-  icp_map_pcd_path:=/home/jhr/jhr/fast_ws/src/mapping_adapter/maps/map.pcd
+  visualization_map_pcd_path:=maps/map_visualization.pcd \
+  icp_map_pcd_path:=maps/map_preprocessed.pcd
 ```
 
 The launch runs `icp_localization_node` and opens RViz. By default it does not

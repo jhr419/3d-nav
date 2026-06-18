@@ -1,0 +1,20 @@
+<launch>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="localization" default="true"/>
+  <arg name="global_planning" default="true"/>
+  <arg name="local_planning" default="true"/>
+  <arg name="robot_api" default="true"/>
+  <arg name="rviz" default="true"/>
+  <arg name="start_livox_driver" default="true"/>
+  <arg name="start_fastlio" default="true"/>
+  <include file="$(find-pkg-share nav3d_bringup)/launch/navigation_impl.launch.py">
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="localization" value="$(var localization)"/>
+    <arg name="global_planning" value="$(var global_planning)"/>
+    <arg name="local_planning" value="$(var local_planning)"/>
+    <arg name="robot_api" value="$(var robot_api)"/>
+    <arg name="rviz" value="$(var rviz)"/>
+    <arg name="start_livox_driver" value="$(var start_livox_driver)"/>
+    <arg name="start_fastlio" value="$(var start_fastlio)"/>
+  </include>
+</launch>

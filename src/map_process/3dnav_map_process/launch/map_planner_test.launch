@@ -1,0 +1,6 @@
+<launch>
+  <arg name="rviz" default="true"/>
+  <include file="$(find-pkg-share nav3d_bringup)/launch/map_planner_test.launch">
+    <arg name="rviz" value="$(var rviz)"/>
+  </include>
+</launch>

@@ -5,11 +5,11 @@ pcd_preprocessor_node:
     # ============================================================
     # input_pcd:
     #   输入 PCD 点云路径。建议使用原始或初步滤波后的全局地图点云。
-    input_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_ground.pcd
+    input_pcd: maps/map_origin.pcd
 
     # output_pcd:
-    #   输出处理后的 PCD 路径。建议放在 /home/jhr/workspace/PCT_planner/rsc/pcd/。
-    output_pcd: /home/jhr/workspace/PCT_planner/rsc/pcd/full_map_leveled.pcd
+    #   输出处理后的 PCD 路径。建议放在 maps/。
+    output_pcd: maps/map_preprocessed.pcd
 
     # frame_id:
     #   发布 /processed_points 时使用的坐标系。RViz2 Fixed Frame 需要与这里一致。

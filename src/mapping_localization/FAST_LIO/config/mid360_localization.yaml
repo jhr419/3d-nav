@@ -7,7 +7,7 @@
         filter_size_map: 0.5              # 地图点云体素滤波尺寸，单位 m
         cube_side_length: 1000.0          # 局部地图立方体边长，单位 m
         runtime_pos_log_enable: false     # 是否记录运行时位姿日志
-        map_file_path: "/home/jhr/fast_ws/src/mapping_adapter/maps/map.pcd"       # 保存 PCD 地图文件路径
+        map_file_path: "maps/map_preprocessed.pcd"       # 保存 PCD 地图文件路径
 
         common:
             lid_topic:  "/livox/lidar"    # 雷达点云话题

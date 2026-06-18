@@ -15,16 +15,16 @@ pct_global_planner_node:
     default_goal_z: 0.0
 
     map_source: "tomogram"
-    map_file: "/home/jhr/3dnav_ws/maps/result_cleaned.bt"
-    pcd_file: "/home/jhr/3dnav_ws/maps/map.pcd"
+    map_file: "maps/map_preprocessed.pcd"
+    pcd_file: "maps/map_preprocessed.pcd"
     pointcloud_topic: "/cloud_registered"
     use_static_map_file: true
 
     scene: "Building"
-    tomogram_file: "map_leveled"
-    tomogram_dir: "/home/jhr/.ros/pct_planner/tomogram"
-    planner_lib_dir: "/home/jhr/3dnav_ws/src/PCT_planner/planner/lib"
-    pct_ros2_source_dir: "/home/jhr/3dnav_ws/src/PCT_planner/pct_planner_ros2"
+    tomogram_file: "map_preprocessed"
+    tomogram_dir: "maps/tomogram"
+    planner_lib_dir: "src/PCT_planner/planner/lib"
+    pct_ros2_source_dir: "src/PCT_planner/pct_planner_ros2"
     use_quintic: true
     max_heading_rate: 6.0
     path_z_offset: 0.0
@@ -62,10 +62,10 @@ pct_global_planner_node:
 pct_global_map_publisher:
   ros__parameters:
     map_frame: "map"
-    pcd_dir: "/home/jhr/3dnav_ws/maps"
-    pcd_file: "/home/jhr/3dnav_ws/maps/map.pcd"
-    tomogram_dir: "/home/jhr/.ros/pct_planner/tomogram"
-    tomogram_file: "map_leveled"
+    pcd_dir: "maps"
+    pcd_file: "map_preprocessed.pcd"
+    tomogram_dir: "maps/tomogram"
+    tomogram_file: "map_preprocessed"
     pointcloud_topic: "/global_points"
     tomogram_topic: "/tomogram"
     publish_raw_cloud: true

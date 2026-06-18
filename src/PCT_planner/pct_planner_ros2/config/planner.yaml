@@ -51,15 +51,15 @@ pct_map_publisher:
     # pcd_dir / pcd_file:
     #   发布到 /global_points 的 PCD 文件。
     #   建议使用已经拉平/滤波后的点云，这样可视化、tomography 和规划使用同一地图。
-    pcd_dir: /home/jhr/3dnav_ws/src/maps/LCC_maps
-    pcd_file: lccmap_leveled.pcd
+    pcd_dir: maps
+    pcd_file: map_preprocessed.pcd
 
     # tomogram_dir / tomogram_file:
     #   发布到 /tomogram 的 tomogram pickle 文件。
     #   tomogram_file 不需要写 .pickle 后缀。
     #   通常应与 tomography 使用的 pcd_file 文件名 stem 保持一致。
-    tomogram_dir: /home/jhr/.ros/pct_planner/tomogram
-    tomogram_file: lccmap_leveled
+    tomogram_dir: maps/tomogram
+    tomogram_file: map_preprocessed
 
     # map_frame:
     #   发布 PointCloud2 时使用的 frame_id。
@@ -173,17 +173,17 @@ pct_planner:
     # tomogram_file:
     #   输入 tomogram 文件名，不包含 .pickle 后缀。
     #   必须能在 tomogram_dir 中找到对应文件，例如：
-    #     /home/jhr/.ros/pct_planner/tomogram/height_filter_map_leveled.pickle
-    tomogram_file: lccmap_leveled
+    #     maps/tomogram/map_preprocessed.pickle
+    tomogram_file: map_preprocessed
 
     # tomogram_dir:
     #   tomography.launch.py 生成的 tomogram pickle 所在目录。
-    tomogram_dir: /home/jhr/.ros/pct_planner/tomogram
+    tomogram_dir: maps/tomogram
 
     # planner_lib_dir:
     #   原 PCT Planner 编译后的 PyBind/C++ 库目录。
     #   如果留空，pct_planner 还会尝试读取 PCT_PLANNER_LIB_DIR 和仓库内 planner/lib。
-    planner_lib_dir: /home/jhr/workspace/PCT_planner/planner/lib
+    planner_lib_dir: src/PCT_planner/planner/lib
 
     # use_quintic:
     #   true  = 使用 quintic 轨迹优化封装。

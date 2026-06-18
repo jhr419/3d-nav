@@ -1,0 +1,34 @@
+paths:
+  maps_dir: "maps"
+  map_origin_pcd: "maps/map_origin.pcd"
+  map_preprocessed_pcd: "maps/map_preprocessed.pcd"
+  map_visualization_pcd: "maps/map_visualization.pcd"
+  tomogram_dir: "maps/tomogram"
+  tomogram_file: "map_preprocessed"
+  tomogram_pickle: "maps/tomogram/map_preprocessed.pickle"
+  planner_lib_dir: "src/PCT_planner/planner/lib"
+
+modules:
+  mapping:
+    package: "mapping_adapter"
+    launch: "fast_adapter_mapping.launch"
+    algorithm: "FAST-LIO"
+  map_process:
+    package: "pct_planner_ros2"
+    launch: "tomography.launch.py"
+    algorithm: "PCT Tomography"
+  localization:
+    package: "localization_adapter"
+    launch: "fastlio_icp_localization.launch"
+    algorithm: "FAST-LIO + ICP"
+  global_planning:
+    package: "pct_global_planner"
+    launch: "pct_global_planner.launch.py"
+    algorithm: "PCT Planner"
+  local_planning:
+    package: "ego_local_planner"
+    launch: "ego_local_planner.launch.py"
+    algorithm: "EGO Planner"
+  robot_api:
+    control_package: "nav3d_control"
+    bridge_package: "go2_twist_bridge"

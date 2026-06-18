@@ -1,0 +1,12 @@
+<launch>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="start_livox_driver" default="true"/>
+  <arg name="start_fastlio" default="true"/>
+  <arg name="start_rviz" default="true"/>
+  <include file="$(find-pkg-share nav3d_bringup)/launch/localization.launch">
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="start_livox_driver" value="$(var start_livox_driver)"/>
+    <arg name="start_fastlio" value="$(var start_fastlio)"/>
+    <arg name="start_rviz" value="$(var start_rviz)"/>
+  </include>
+</launch>

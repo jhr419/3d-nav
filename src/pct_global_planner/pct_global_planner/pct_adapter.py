@@ -168,9 +168,8 @@ class PCTPlannerAdapter:
         candidates = [
             self._param("pct_ros2_source_dir", ""),
             os.environ.get("PCT_PLANNER_ROS2_SOURCE_DIR", ""),
-            "/home/jhr/3dnav_ws/src/PCT_planner/pct_planner_ros2",
-            "/home/jhr/workspace/PCT_planner/pct_planner_ros2",
             str(Path.cwd() / "src" / "PCT_planner" / "pct_planner_ros2"),
+            str(Path(__file__).resolve().parents[2] / "PCT_planner" / "pct_planner_ros2"),
         ]
 
         for candidate in candidates:

@@ -1,0 +1,8 @@
+<launch>
+  <arg name="rviz" default="true"/>
+  <arg name="preprocess_overwrite" default="true"/>
+  <include file="$(find-pkg-share nav3d_bringup)/launch/map_preprocess_impl.launch.py">
+    <arg name="rviz" value="$(var rviz)"/>
+    <arg name="preprocess_overwrite" value="$(var preprocess_overwrite)"/>
+  </include>
+</launch>

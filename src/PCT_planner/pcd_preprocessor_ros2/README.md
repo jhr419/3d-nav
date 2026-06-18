@@ -13,7 +13,7 @@ Open3D is required for `enable_auto_level: true`. Install it into the Python env
 ## Build
 
 ```bash
-cd /home/jhr/workspace/PCT_planner
+cd <your_3dnav_ws>
 colcon build --symlink-install --packages-select pcd_preprocessor_ros2
 source install/setup.bash
 ```
@@ -43,19 +43,19 @@ ros2 launch pcd_preprocessor_ros2 pcd_preprocessor.launch.py config_file:=/path/
 Save the processed PCD under:
 
 ```text
-/home/jhr/workspace/PCT_planner/rsc/pcd/
+maps/
 ```
 
 Then edit:
 
 ```text
-/home/jhr/workspace/PCT_planner/pct_planner_ros2/config/tomography.yaml
+src/PCT_planner/pct_planner_ros2/config/tomography.yaml
 ```
 
 Set `pcd_file` to the output file name, for example:
 
 ```yaml
-pcd_dir: /home/jhr/workspace/PCT_planner/rsc/pcd
+pcd_dir: maps
 pcd_file: full_map_leveled.pcd
 ```
 

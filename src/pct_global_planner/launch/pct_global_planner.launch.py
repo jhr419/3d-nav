@@ -34,27 +34,27 @@ def generate_launch_description():
     )
     map_file_arg = DeclareLaunchArgument(
         "map_file",
-        default_value="/home/jhr/3dnav_ws/maps/result_cleaned.bt",
+        default_value="maps/map_preprocessed.pcd",
         description="Metadata/static map file path. PCT planning uses tomogram_file.",
     )
     pcd_file_arg = DeclareLaunchArgument(
         "pcd_file",
-        default_value="/home/jhr/3dnav_ws/maps/map.pcd",
+        default_value="maps/map_preprocessed.pcd",
         description="Metadata/source PCD path used when regenerating PCT tomograms.",
     )
     tomogram_file_arg = DeclareLaunchArgument(
         "tomogram_file",
-        default_value="map_leveled",
+        default_value="map_preprocessed",
         description="PCT tomogram pickle stem or absolute .pickle path",
     )
     tomogram_dir_arg = DeclareLaunchArgument(
         "tomogram_dir",
-        default_value="/home/jhr/.ros/pct_planner/tomogram",
+        default_value="maps/tomogram",
         description="Directory containing PCT tomogram pickle files",
     )
     planner_lib_dir_arg = DeclareLaunchArgument(
         "planner_lib_dir",
-        default_value="/home/jhr/3dnav_ws/src/PCT_planner/planner/lib",
+        default_value="src/PCT_planner/planner/lib",
         description="PCT Planner core library directory",
     )
     launch_map_publisher_arg = DeclareLaunchArgument(

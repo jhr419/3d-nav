@@ -1,0 +1,6 @@
+<launch>
+  <arg name="use_sim_time" default="false"/>
+  <include file="$(find-pkg-share nav3d_bringup)/launch/local_planning.launch">
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+  </include>
+</launch>
