@@ -1,0 +1,296 @@
+pct_tomography:
+  ros__parameters:
+    # ============================================================
+    # Input / Output
+    # ============================================================
+    # scene:
+    #   选择一组默认参数，可选 Spiral / Building / Plaza。
+    #   下面显式写出的参数会覆盖 scene 默认值。
+    scene: Building
+
+    # pcd_dir / pcd_file:
+    #   tomography 实际读取的 PCD 目录和文件名。
+    #   如果 enable_preprocess=true，这里应该指向 preprocess_output_pcd 的输出文件。
+    #   如果 enable_preprocess=false，这里直接作为输入点云。
+    pcd_dir: /home/jhr/3dnav_ws/src/maps/pct_maps
+    pcd_file: map_leveled_ground.pcd
+
+    # tomogram_dir:
+    #   输出 tomogram pickle 的目录。
+    #   输出文件名会自动使用 pcd_file 的 stem，例如 mapleveled.pickle。
+    tomogram_dir: /home/jhr/.ros/pct_planner/tomogram
+
+    # benchmark_repeats:
+    #   只影响耗时统计平均次数，不改变地图结果。
+    #   调参阶段建议 1，正式测试性能时再增大。
+    benchmark_repeats: 1
+
+    # auto_run:
+    #   true  = 节点启动后立即执行预处理，然后生成 tomogram 并发布可视化点云。
+    #   false = 只加载参数并启动节点，适合检查 YAML 是否被正确读取。
+    auto_run: true
+
+    # ============================================================
+    # PCD Preprocess
+    # ============================================================
+    # enable_preprocess:
+    #   true  = tomography 前先执行点云预处理，并把结果写入 preprocess_output_pcd。
+    #   false = 跳过预处理，直接读取 pcd_dir/pcd_file。
+    # 建议：
+    #   原始地图是斜的、z 轴不竖直、地面高度漂移时打开。
+    #   已经离线处理好的点云可以关闭，加快启动。
+    enable_preprocess: true
+
+    # preprocess_input_pcd:
+    #   原始 PCD 路径。可以写绝对路径，也可以写相对于 pcd_dir 的文件名。
+    #   建议保留原始文件，不要直接覆盖。
+    preprocess_input_pcd: /home/jhr/3dnav_ws/src/maps/pct_maps/map_leveled_ground.pcd
+
+    # preprocess_output_pcd:
+    #   预处理后的 PCD 路径。tomography 后续会读取这个文件。
+    #   文件名 stem 会成为 tomogram 输出名，例如 map_leveled.pickle。
+    preprocess_output_pcd: /home/jhr/3dnav_ws/src/maps/pct_maps/map_leveled.pcd
+
+    # preprocess_overwrite:
+    #   true  = 每次启动都重新生成 preprocess_output_pcd。
+    #   false = 如果输出文件已存在，则跳过预处理并直接用于 tomography。
+    # 调参时建议 true；参数稳定后可设 false 缩短启动时间。
+    preprocess_overwrite: true
+
+    # enable_manual_transform:
+    #   true 时先应用手动刚体变换，再进行自动拉平。
+    #   变换顺序为 Rz(yaw) * Ry(pitch) * Rx(roll) * p + [tx, ty, tz]。
+    # 建议：
+    #   已知点云大致倾斜角时先用手动变换粗调；
+    #   不确定时保持 false，让 RANSAC 自动拉平。
+    enable_manual_transform: true
+
+    # roll / pitch / yaw:
+    #   手动旋转角，单位 rad。
+    #   正负方向按右手系；小角度调试可从 0.02 - 0.10 rad 开始。
+    # roll: 3.14159
+    roll: 0.0
+    pitch: 0.0
+    yaw: 0.0
+
+    # tx / ty / tz:
+    #   手动平移，单位 m。
+    #   一般 x/y 不需要动；z 可用于整体高度粗调。
+    tx: 0.0
+    ty: 0.0
+    tz: 0.0
+
+    # enable_auto_level:
+    #   true 时从低处点中 RANSAC 拟合地面平面，并把地面法向量对齐到 normal_target_axis。
+    #   需要 Python open3d；如果环境缺少 open3d，可关闭它并使用手动变换。
+    enable_auto_level: true
+
+    # ground_percentile:
+    #   取 z 值最低该百分位以内的点作为候选地面点。
+    #   值越大候选点越多，但更容易混入墙/障碍；值太小可能地面点不足。
+    # 建议：10 - 20；地面较少时增大，低处噪声多时减小。
+    ground_percentile: 15.0
+
+    # max_ground_points:
+    #   RANSAC 候选地面点最大数量，超过后随机采样。
+    #   大地图可保持 30000 - 80000，越大越稳但越慢。
+    max_ground_points: 50000
+
+    # ransac_distance_threshold:
+    #   RANSAC 平面内点距离阈值，单位 m。
+    #   点云噪声大或地面粗糙时增大；地面很平时减小。
+    # 建议：0.03 - 0.08。 
+    ransac_distance_threshold: 0.08
+
+    # ransac_n / ransac_num_iterations:
+    #   RANSAC 每次采样点数和迭代次数。
+    #   ransac_n 通常保持 3；拟合不稳定时提高 ransac_num_iterations。
+    ransac_n: 3
+    ransac_num_iterations: 1000
+
+    # normal_target_axis:map_
+    #   自动拉平后的目标地面法向量。
+    #   PCT tomography 默认 z 轴竖直，所以通常保持 [0, 0, 1]。
+    normal_target_axis: [0.0, 0.0, 1.0]
+
+    # enable_ground_z_shift:
+    #   true 时把拉平后的地面参考高度平移到 target_ground_z。
+    #   建议打开，并让 target_ground_z 与 ground_h 一致。
+    enable_ground_z_shift: true
+
+    # target_ground_z:
+    #   拉平后地面参考高度，单位 m。
+    #   如果 ground_h=0.0，这里也建议 0.0。
+    target_ground_z: 0.0
+
+    # ground_z_shift_mode:
+    #   min                    = 用全局最低点对齐，容易受低处噪声影响。
+    #   plane_inliers_median   = 用地面平面内点中位数对齐，默认推荐。
+    #   plane_inliers_percentile = 用地面平面内点指定百分位对齐。
+    ground_z_shift_mode: plane_inliers_median
+
+    # ground_z_shift_percentile:
+    #   ground_z_shift_mode=plane_inliers_percentile 时生效。
+    ground_z_shift_percentile: 50.0
+
+    # random_seed:
+    #   候选地面点随机采样种子，保证同一输入下预处理结果可复现。
+    random_seed: 42
+
+    # ============================================================
+    # ROS Topics / Frames
+    # ============================================================
+    # map_frame:
+    #   发布点云和 tomogram 的 frame_id。
+    #   RViz2 的 Fixed Frame 需要和这里一致。
+    map_frame: map
+
+    # pointcloud_topic:
+    #   tomography 实际使用的点云可视化 topic。
+    #   enable_preprocess=true 时发布的是预处理后的点云。
+    pointcloud_topic: /global_points
+
+    # layer_g_topic_prefix / layer_c_topic_prefix:
+    #   每个简化层的 ground / ceiling 点云 topic 前缀。
+    #   实际发布为 /layer_G_0, /layer_G_1 ... 和 /layer_C_0, /layer_C_1 ...
+    layer_g_topic_prefix: /layer_G_
+    layer_c_topic_prefix: /layer_C_
+
+    # tomogram_topic:
+    #   合并后的 tomogram 可视化 topic，RViz 中 Tomogram 显示项使用它。
+    tomogram_topic: /tomogram
+
+    # ============================================================
+    # Map Geometry
+    # ============================================================
+    # resolution:
+    #   XY 平面栅格分辨率，单位 m。
+    #   越小：地图更精细，窄通道/边界保留更好，但显存和计算量增加。
+    #   越大：生成更快、更稳，但细节会被抹掉。
+    #   建议：
+    #     室内/建筑：0.05 - 0.10
+    #     大场景：0.10 - 0.20
+    #     如果 GPU 显存不够或生成太慢，优先增大该值。
+    resolution: 0.12
+
+    # ground_h:
+    #   地图最低地面高度基准，单位 m。
+    #   tomography 会把点云 z 最小边界替换为 ground_h，并从 ground_h + slice_dh 开始分层。
+    #   建议：
+    #     如果点云地面 z 约为 0，设为 0.0。
+    #     如果点云整体有高度偏移，设为最低可行走地面高度。
+    #     如果底层缺失或楼层错位，优先检查这个值。
+    ground_h: 0.0
+
+    # slice_dh:
+    #   垂直切片间隔，单位 m。
+    #   越小：高度分辨率更高，楼梯/坡道/多层结构更清楚，但层数和计算量增加。
+    #   越大：层数少、速度快，但可能把不同高度的地面合并。
+    #   建议：
+    #     普通室内/楼层：0.3 - 0.5
+    #     大高度跨度但只关心粗层：1.0+
+    #     当前 3.0 很粗，适合楼层间距明显的粗分层；如果局部坡道/台阶不可通，尝试 0.5。
+    slice_dh: 1.5
+
+    # ============================================================
+    # Traversability Cost
+    # ============================================================
+    # kernel_size:
+    #   判断邻域平坦可站立区域的窗口大小，建议使用奇数。
+    #   实际邻域半径为 kernel_size // 2 个栅格。
+    #   越大：对噪声更稳、更保守。
+    #   越小：更容易通过窄区域，但对噪声敏感。
+    #   常用：5 / 7 / 9。
+    kernel_size: 1
+
+    # interval_min:
+    #   最小净空，单位 m。interval = ceiling - ground。
+    #   小于该值会直接设为 cost_barrier，不可通行。
+    #   建议按机器人高度 + 安全余量设置。
+    interval_min: 0.3
+
+    # interval_free:
+    #   舒适净空，单位 m。
+    #   interval_min < interval < interval_free 时会增加软代价：
+    #     cost += max(0, 20 * (interval_free - interval))
+    #   建议略高于 interval_min，一般 interval_min + 0.1 到 0.3。
+    interval_free: 0.5
+
+    # slope_max:
+    #   最大可站立坡度阈值，单位 rad。
+    #   内部转换为：
+    #     step_stand = 1.2 * resolution * tan(slope_max)
+    #   越大：更容易接受坡面/粗糙地面。
+    #   越小：更偏好平地。
+    #   建议：0.30 - 0.45。
+    slope_max: 0.40
+
+    # step_max:
+    #   最大可跨越台阶高度，单位 m。
+    #   局部高度突变超过该值会被判为障碍。
+    #   建议：
+    #     小轮式：0.05 - 0.12
+    #     普通轮式：0.10 - 0.18
+    #     腿式/履带：0.15 - 0.30
+    step_max: 0.17
+
+    # standable_ratio:
+    #   邻域内需要满足“平坦可站立”的比例。
+    #   内部阈值：
+    #     standable_th = standable_ratio * kernel_size^2 - 1
+    #   越大：越保守，要求附近更多平坦格。
+    #   越小：更容易通过破碎区域。
+    #   建议：0.15 - 0.35；点云噪声大时可先降到 0.15。
+    standable_ratio: 0.01
+
+    # cost_barrier:
+    #   障碍/不可通行代价。
+    #   达到该值的格子通常被 planner 视为不可通过或极高代价。
+    #   建议保持 50.0，除非同步调整 planner 中的 cost threshold。
+    cost_barrier: 50.0
+
+    # ============================================================
+    # Cost Inflation
+    # ============================================================
+    # safe_margin:
+    #   安全距离膨胀半径，单位 m。
+    #   越大：路径离障碍更远，但窄通道更容易被堵死。
+    #   越小：可通过更窄区域，但路径可能贴障碍。
+    #   建议约等于机器人半宽/半径；规划找不到路时优先减小它。
+    safe_margin: 0.1
+
+    # inflation:
+    #   高代价核心膨胀半径，单位 m。
+    #   在 inflation 范围内高代价影响更强，之后逐渐衰减到 safe_margin 外。
+    #   建议：0.0 - 0.3。
+    #   路径太贴障碍：增大；窄通道过不去：减小。
+    inflation: 0.01
+
+    # ============================================================
+    # Quick Tuning Recipes
+    # ============================================================
+    # 1. 生成太慢或显存不够：
+    #    增大 resolution，例如 0.15 或 0.20；benchmark_repeats 保持 1。
+    #
+    # 2. 很多区域被判不可通行：
+    #    检查 ground_h / slice_dh 是否合理；
+    #    适当增大 slope_max 或 step_max；
+    #    降低 standable_ratio。
+    #
+    # 3. 明明有路但 planner 找不到：
+    #    减小 safe_margin / inflation；
+    #    降低 resolution 保留窄通道；
+    #    检查 start/goal 是否落在 cost_barrier 或越界区域。
+    #
+    # 4. 路径贴墙或贴障碍：
+    #    增大 safe_margin 或 inflation。
+    #
+    # 5. 楼层、坡道、高度层不对：
+    #    减小 slice_dh；
+    #    检查 ground_h；
+    #    在 RViz2 中查看 /layer_G_* 和 /layer_C_*。
+    #
+    # 6. 原始点云是斜的：
+    #    保持 enable_preprocess=true；
+    #    优先调 ground_percentile / ransac_distance_threshold；
+    #    如果自动拉平不稳定，再打开 enable_manual_transform 做粗调。
