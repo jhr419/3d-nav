@@ -26,45 +26,45 @@ ego_local_planner_node:
     allow_z_motion: false
 
     cloud_in_sensor_frame: true
-    local_map_radius: 2.5
+    local_map_radius: 5.0
     local_map_height: 1.2
     voxel_resolution: 0.15
     inflation_radius: 0.25
-    robot_clear_radius: 0.50
+    robot_clear_radius: 0.30
     astar_search_margin: 1.0
 
     remove_ground_points: true
     ground_relative_to_base: true
-    ground_z_threshold: 0.08
+    ground_z_threshold: 0.0
     self_filter_radius: 0.45
     dynamic_obstacle_timeout: 0.5
 
-    local_target_lookahead: 1.2
+    local_target_lookahead: 3.0
     min_local_target_lookahead: 0.5
     goal_reached_tolerance: 0.35
     z_following_enabled: true
     max_allowed_z_jump: 0.35
 
-    max_vel_x: 0.6
-    max_vel_y: 0.4
-    max_acc_x: 0.5
-    max_acc_y: 0.5
+    max_vel_x: 0.2
+    max_vel_y: 0.1
+    max_acc_x: 0.2
+    max_acc_y: 0.2
     max_yaw_rate: 1.0
     max_yaw_acc: 1.5
 
-    traj_tracking_lookahead_time: 0.5
-    traj_tracking_lookahead_distance: 0.4
+    traj_tracking_lookahead_time: 0.2
+    traj_tracking_lookahead_distance: 1.0
     kp_x: 0.8
     kp_y: 0.8
     kp_yaw: 1.2
     min_cmd_vel: 0.03
-    max_cmd_vel_x: 0.6
-    max_cmd_vel_y: 0.4
+    max_cmd_vel_x: 0.4
+    max_cmd_vel_y: 0.2
     max_cmd_wz: 1.0
 
-    replan_frequency: 5.0
+    replan_frequency: 20.0
     control_frequency: 20.0
-    collision_check_frequency: 10.0
+    collision_check_frequency: 20.0
     replan_on_dynamic_obstacle: true
     replan_when_path_blocked: true
-    path_block_check_distance: 1.2
+    path_block_check_distance: 3.0

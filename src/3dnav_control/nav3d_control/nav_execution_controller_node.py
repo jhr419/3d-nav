@@ -96,12 +96,22 @@ class NavExecutionController(Node):
                 self._set_state(ExecutionState.IDLE, "received empty path")
             return
 
+        # self.have_path = True
+        # self.last_path_header = msg.header
+        # if self.auto_start_on_new_path:
+        #     self._set_state(ExecutionState.RUNNING, "new path")
+        #     return
+        # self._set_state(ExecutionState.PATH_READY, "new path")
+
         self.have_path = True
         self.last_path_header = msg.header
+        if self.state == ExecutionState.RUNNING:
+            return
         if self.auto_start_on_new_path:
             self._set_state(ExecutionState.RUNNING, "new path")
             return
         self._set_state(ExecutionState.PATH_READY, "new path")
+
 
     def _handle_start(self, request, response):
         del request
