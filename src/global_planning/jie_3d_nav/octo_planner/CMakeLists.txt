@@ -5,6 +5,9 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -61,11 +64,26 @@ ament_target_dependencies(icp_pose_to_start_point_node
   rclcpp
 )
 
+add_executable(jie_3d_global_planner_adapter_node src/jie_3d_global_planner_adapter_node.cpp)
+ament_target_dependencies(jie_3d_global_planner_adapter_node
+  geometry_msgs
+  nav_msgs
+  octomap_msgs
+  rclcpp
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
+  visualization_msgs
+)
+target_link_libraries(jie_3d_global_planner_adapter_node octomap)
+
 install(TARGETS
   jie_path_node
   d1_controller
   test_map_to_odom_tf_node
   icp_pose_to_start_point_node
+  jie_3d_global_planner_adapter_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

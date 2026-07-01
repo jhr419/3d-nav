@@ -33,3 +33,4 @@ class PlannerConfig:
     astar_cost_threshold: float = 20.0
     astar_step_cost_weight: float = 0.5
     optimizer_safe_cost_threshold: float = 8.0
+    max_path_z_jump: float = 0.8

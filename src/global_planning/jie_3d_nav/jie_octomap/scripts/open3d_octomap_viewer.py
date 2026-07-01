@@ -4,13 +4,11 @@ import time
 from typing import Optional
 
 import numpy as np
-from jie_octomap.open3d_compat import import_open3d
+import open3d as o3d
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
-
-o3d = import_open3d()
 
 
 class Open3DOctomapViewer(Node):

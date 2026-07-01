@@ -147,14 +147,14 @@ pct_start_goal_marker:
     # 建议：
     #   将默认点放在地图中心附近，RViz2 打开后更容易找到 marker。
     default_start_x: 0.0
-    default_start_y: 0.21
+    default_start_y: 2.69
     default_start_z: 0.0
     default_start_roll: 0.0
     default_start_pitch: 0.0
     default_start_yaw: 0.0
 
     default_goal_x: 5.0
-    default_goal_y: 11.0
+    default_goal_y: 13.06
     default_goal_z: 0.0
     default_goal_roll: 0.0
     default_goal_pitch: 0.0
@@ -222,7 +222,7 @@ pct_planner:
     # 建议：
     #   急转弯、贴障碍时可设为 0.5 - 0.8。
     #   路径绕得太远或搜索失败时降到 0.2 - 0.4。
-    astar_step_cost_weight: 0.65
+    astar_step_cost_weight: 0.4
 
     # optimizer_safe_cost_threshold:
     #   轨迹优化阶段认为“安全”的地图代价阈值。
@@ -232,6 +232,13 @@ pct_planner:
     #   地图很窄、优化后路径绕不开时可升到 8.0 - 12.0。
     optimizer_safe_cost_threshold: 8.0
 
+    # max_path_z_jump:
+    #   发布路径前允许的相邻路径点最大 z 跳变，单位 m。
+    #   超过该值说明路径可能错误切到另一楼层；会回退到 A* 原始路径，
+    #   如果原始路径也超限则拒绝发布，避免出现高处瞬间掉到低处的危险路径。
+    #   0.0 表示关闭该检查。楼梯场景建议 0.6 - 1.0。
+    max_path_z_jump: 0.8
+
     # map_frame / path_topic:
     #   发布全局路径时使用的坐标系和 topic。
     map_frame: map
@@ -240,15 +247,15 @@ pct_planner:
     # ============================================================
     # 起点/终点行为
     # ============================================================
-    # start_x/start_y/goal_x/goal_y:
-    #   可选的二维参数起点/终点兜底值。
+    # start_x/start_y/start_z/goal_x/goal_y/goal_z:
+    #   可选的二维/三维参数起点/终点兜底值。
     #   使用 .nan 时保持场景默认值，直到交互 marker 发布 PoseStamped。
     start_x: 0.91
     start_y: 2.83
-    # start_z: 0.0
+    start_z: 0.0
     goal_x: 1.24
     goal_y: 6.07
-    # goal_z: 3.77
+    goal_z: 3.77
 
     # start_pose_topic / goal_pose_topic:
     #   来自 pct_start_goal_marker 的 PoseStamped topic。

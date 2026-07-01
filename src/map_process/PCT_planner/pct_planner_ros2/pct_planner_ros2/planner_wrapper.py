@@ -132,6 +132,7 @@ class TomogramPlanner:
         self.astar_cost_threshold = float(self.cfg.astar_cost_threshold)
         self.astar_step_cost_weight = float(self.cfg.astar_step_cost_weight)
         self.optimizer_safe_cost_threshold = float(self.cfg.optimizer_safe_cost_threshold)
+        self.max_path_z_jump = float(getattr(self.cfg, 'max_path_z_jump', 0.8))
 
         self.tomo_dir = Path(self.cfg.tomogram_dir).expanduser()
         self.a_star, self.ele_planner, self.traj_opt = load_planner_modules(
@@ -243,6 +244,12 @@ class TomogramPlanner:
 
         traj = np.concatenate([traj_raw, layers.reshape(-1, 1)], axis=-1)
         y_idx = (traj.shape[-1] - 1) // 2
+        ground = self.sample_ground(traj[:, 0], traj[:, y_idx], layers)
+        valid_ground = np.isfinite(ground)
+        if np.any(valid_ground):
+            heights = heights.copy()
+            heights[valid_ground] = np.maximum(heights[valid_ground], ground[valid_ground])
+
         traj_3d = np.stack([traj[:, 0], traj[:, y_idx], heights / self.resolution], axis=1)
         traj_3d = trans_traj_grid_to_map(
             self.map_dim,
@@ -251,8 +258,65 @@ class TomogramPlanner:
             traj_3d,
             z_offset=self.path_z_offset,
         )
+        if self.has_large_z_jump(traj_3d):
+            _log_warning(
+                self.logger,
+                'Optimized trajectory has a large z jump; falling back to raw A* path.',
+            )
+            raw_traj_3d = self.raw_path_to_traj(path)
+            if raw_traj_3d is not None and not self.has_large_z_jump(raw_traj_3d):
+                return raw_traj_3d
+            if self.logger is not None:
+                self.logger.error('Rejected trajectory: raw A* path also has a large z jump.')
+            return None
 
         return traj_3d
+
+    def has_large_z_jump(self, traj_3d):
+        if self.max_path_z_jump <= 0.0 or traj_3d is None or len(traj_3d) < 2:
+            return False
+
+        dz = np.abs(np.diff(traj_3d[:, 2]))
+        finite_dz = dz[np.isfinite(dz)]
+        return finite_dz.size > 0 and float(np.max(finite_dz)) > self.max_path_z_jump
+
+    def raw_path_to_traj(self, path):
+        path = np.asarray(path)
+        if path.ndim != 2 or path.shape[0] == 0 or path.shape[1] < 3:
+            return None
+
+        layers = np.rint(path[:, 0]).astype(np.int32)
+        rows = np.rint(path[:, 1]).astype(np.int32)
+        cols = np.rint(path[:, 2]).astype(np.int32)
+        heights = self.sample_ground(cols, rows, layers)
+        if not np.all(np.isfinite(heights)):
+            return None
+
+        traj_grid = np.stack([cols, rows, heights / self.resolution], axis=1).astype(np.float32)
+        return trans_traj_grid_to_map(
+            self.map_dim,
+            self.center,
+            self.resolution,
+            traj_grid,
+            z_offset=self.path_z_offset,
+        )
+
+    def sample_ground(self, cols, rows, layers):
+        cols = np.rint(cols).astype(np.int32)
+        rows = np.rint(rows).astype(np.int32)
+        layers = np.rint(layers).astype(np.int32)
+
+        valid = (
+            (0 <= layers)
+            & (layers < self.n_slice)
+            & (0 <= rows)
+            & (rows < self.map_dim[0])
+            & (0 <= cols)
+            & (cols < self.map_dim[1])
+        )
+        ground = np.full(cols.shape, np.nan, dtype=np.float32)
+        ground[valid] = self.elev_g[layers[valid], rows[valid], cols[valid]]
+        return ground
 
     def pose_to_idx(self, pose):
         pose = np.asarray(pose, dtype=np.float32)

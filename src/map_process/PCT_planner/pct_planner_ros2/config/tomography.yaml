@@ -44,12 +44,12 @@ pct_tomography:
     # preprocess_input_pcd:
     #   原始 PCD 路径。可以写绝对路径，也可以写相对于 pcd_dir 的文件名。
     #   建议保留原始文件，不要直接覆盖。
-    preprocess_input_pcd: maps/map_origin.pcd
+    preprocess_input_pcd: map_origin.pcd
 
     # preprocess_output_pcd:
     #   预处理后的 PCD 路径。tomography 后续会读取这个文件。
     #   文件名 stem 会成为 tomogram 输出名，例如 map_leveled.pickle。
-    preprocess_output_pcd: maps/map_preprocessed.pcd
+    preprocess_output_pcd: map_preprocessed.pcd
 
     # preprocess_overwrite:
     #   true  = 每次启动都重新生成 preprocess_output_pcd。
@@ -187,10 +187,11 @@ pct_tomography:
     #   越小：高度分辨率更高，楼梯/坡道/多层结构更清楚，但层数和计算量增加。
     #   越大：层数少、速度快，但可能把不同高度的地面合并。
     #   建议：
+    #     楼梯/坡道：0.2 - 0.3
     #     普通室内/楼层：0.3 - 0.5
     #     大高度跨度但只关心粗层：1.0+
-    #     当前 3.0 很粗，适合楼层间距明显的粗分层；如果局部坡道/台阶不可通，尝试 0.5。
-    slice_dh: 1.0
+    #     如果局部坡道/台阶不可通，优先尝试 0.2 - 0.3。
+    slice_dh: 0.2
 
     # ============================================================
     # Traversability Cost
@@ -222,8 +223,8 @@ pct_tomography:
     #     step_stand = 1.2 * resolution * tan(slope_max)
     #   越大：更容易接受坡面/粗糙地面。
     #   越小：更偏好平地。
-    #   建议：0.30 - 0.45。
-    slope_max: 0.40
+    #   建议：0.30 - 0.45；需要通过楼梯/较陡坡时可放宽到 0.50 - 0.60。
+    slope_max: 0.55
 
     # step_max:
     #   最大可跨越台阶高度，单位 m。
@@ -232,7 +233,7 @@ pct_tomography:
     #     小轮式：0.05 - 0.12
     #     普通轮式：0.10 - 0.18
     #     腿式/履带：0.15 - 0.30
-    step_max: 0.17
+    step_max: 0.30
 
     # standable_ratio:
     #   邻域内需要满足“平坦可站立”的比例。

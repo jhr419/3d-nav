@@ -1,6 +1,10 @@
 #include <memory>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <sstream>
 #include <string>
+#include <optional>
 
 #include "octomap/AbstractOcTree.h"
 #include "octomap/OcTree.h"
@@ -18,6 +22,9 @@ public:
     declare_parameter<std::string>("octomap_topic", "/octomap");
     declare_parameter<std::string>("marker_topic", "/octomap_occupied_markers");
     declare_parameter<std::string>("frame_id", "map");
+    declare_parameter<int>("marker_stride", 1);
+    declare_parameter<int>("max_marker_points", 0);
+    declare_parameter<double>("republish_period_sec", 1.0);
 
     const auto octomap_topic = get_parameter("octomap_topic").as_string();
     const auto marker_topic = get_parameter("marker_topic").as_string();
@@ -28,6 +35,15 @@ public:
     octomap_sub_ = create_subscription<octomap_msgs::msg::Octomap>(
       octomap_topic, rclcpp::QoS(1).transient_local().reliable(),
       std::bind(&OctomapToOccupiedMarkersNode::onOctomap, this, std::placeholders::_1));
+
+    const double republish_period =
+      std::max(0.0, static_cast<double>(get_parameter("republish_period_sec").as_double()));
+    if (republish_period > 0.0) {
+      republish_timer_ = create_wall_timer(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::duration<double>(republish_period)),
+        std::bind(&OctomapToOccupiedMarkersNode::republishMarker, this));
+    }
 
     RCLCPP_INFO(
       get_logger(), "octomap_to_occupied_markers started. octomap_topic=%s marker_topic=%s",
@@ -66,8 +82,29 @@ private:
     marker.color.b = 0.15F;
     marker.color.a = 0.95F;
 
+    std::size_t occupied_count = 0;
+    for (auto it = oc_tree->begin_leafs(); it != oc_tree->end_leafs(); ++it) {
+      if (oc_tree->isNodeOccupied(*it)) {
+        ++occupied_count;
+      }
+    }
+
+    int marker_stride = std::max(1, static_cast<int>(get_parameter("marker_stride").as_int()));
+    const int max_marker_points = static_cast<int>(get_parameter("max_marker_points").as_int());
+    if (max_marker_points > 0 && occupied_count > static_cast<std::size_t>(max_marker_points)) {
+      marker_stride = std::max(
+        marker_stride,
+        static_cast<int>(std::ceil(
+          static_cast<double>(occupied_count) / static_cast<double>(max_marker_points))));
+    }
+
+    marker.points.reserve(marker_stride > 1 ? occupied_count / marker_stride + 1 : occupied_count);
+    std::size_t occupied_index = 0;
     for (auto it = oc_tree->begin_leafs(); it != oc_tree->end_leafs(); ++it) {
       if (!oc_tree->isNodeOccupied(*it)) {
+        continue;
+      }
+      if ((occupied_index++ % static_cast<std::size_t>(marker_stride)) != 0U) {
         continue;
       }
       geometry_msgs::msg::Point point;
@@ -77,14 +114,28 @@ private:
       marker.points.push_back(point);
     }
 
+    latest_marker_ = marker;
     marker_pub_->publish(marker);
     RCLCPP_INFO_THROTTLE(
       get_logger(), *get_clock(), 3000,
-      "Published occupied marker from OctoMap: %zu voxels", marker.points.size());
+      "Published occupied marker from OctoMap: %zu/%zu voxels stride=%d",
+      marker.points.size(), occupied_count, marker_stride);
+  }
+
+  void republishMarker()
+  {
+    if (!latest_marker_) {
+      return;
+    }
+    auto marker = *latest_marker_;
+    marker.header.stamp = now();
+    marker_pub_->publish(marker);
   }
 
   rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr octomap_sub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
+  rclcpp::TimerBase::SharedPtr republish_timer_;
+  std::optional<visualization_msgs::msg::Marker> latest_marker_;
 };
 
 int main(int argc, char ** argv)

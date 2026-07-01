@@ -3,16 +3,49 @@ from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 import os
+from pathlib import Path
+
+
+def _valid_workspace(path: Path) -> bool:
+    return (path / "src").is_dir() and (path / "maps").is_dir()
+
+
+def _find_workspace_root(pkg_share: str) -> Path:
+    env_value = os.environ.get("NAV3D_WS", "")
+    if env_value:
+        env_path = Path(env_value).expanduser()
+        if _valid_workspace(env_path):
+            return env_path
+
+    cwd = Path.cwd()
+    for candidate in (cwd, *cwd.parents):
+        if _valid_workspace(candidate):
+            return candidate
+
+    share = Path(pkg_share).resolve()
+    for candidate in (share, *share.parents):
+        if _valid_workspace(candidate):
+            return candidate
+
+    if len(share.parents) >= 4:
+        candidate = share.parents[3]
+        if _valid_workspace(candidate):
+            return candidate
+
+    return cwd
 
 def generate_launch_description():
     pkg_share = get_package_share_directory("jie_octomap")
     web_root = os.path.join(pkg_share, "web")
+    workspace_root = _find_workspace_root(pkg_share)
+    default_map_package = workspace_root / "maps" / "jiemaps" / "map_preprocessed"
 
     map_package_arg = DeclareLaunchArgument(
         "map_package",
-        default_value=os.path.expanduser("~/maps/office"),
+        default_value=str(default_map_package),
         description="Path to saved OctoMap map package directory",
     )
     http_port_arg = DeclareLaunchArgument(
@@ -39,6 +72,16 @@ def generate_launch_description():
         "icp_pose_topic",
         default_value="/icp_pose",
         description="PoseWithCovarianceStamped localization topic used as planner start",
+    )
+    occupied_marker_max_points_arg = DeclareLaunchArgument(
+        "occupied_marker_max_points",
+        default_value="0",
+        description="Maximum occupied voxels sent to the browser marker. 0 means unlimited.",
+    )
+    occupied_marker_stride_arg = DeclareLaunchArgument(
+        "occupied_marker_stride",
+        default_value="1",
+        description="Publish every Nth occupied voxel in the browser marker.",
     )
 
     icp_start_bridge_node = Node(
@@ -98,6 +141,13 @@ def generate_launch_description():
                 "octomap_topic": "/octomap",
                 "marker_topic": "/octomap_occupied_markers",
                 "frame_id": "map",
+                "max_marker_points": ParameterValue(
+                    LaunchConfiguration("occupied_marker_max_points"), value_type=int
+                ),
+                "marker_stride": ParameterValue(
+                    LaunchConfiguration("occupied_marker_stride"), value_type=int
+                ),
+                "republish_period_sec": 1.0,
             }
         ],
     )
@@ -168,6 +218,8 @@ def generate_launch_description():
             launch_map_gui_arg,
             launch_icp_start_bridge_arg,
             icp_pose_topic_arg,
+            occupied_marker_max_points_arg,
+            occupied_marker_stride_arg,
             icp_start_bridge_node,
             planner_node,
             occupied_marker_node,

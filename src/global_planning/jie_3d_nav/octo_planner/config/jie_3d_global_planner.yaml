@@ -1,0 +1,84 @@
+jie_3d_global_planner_adapter:
+  ros__parameters:
+    map_frame: "map"
+    odom_frame: "odom"
+    base_frame: "base_link"
+
+    start_source: "tf"
+    manual_start_point_topic: "/jie_3d_nav/manual_start_point"
+    manual_start_pose_topic: "/jie_3d_nav/manual_start_pose"
+    internal_start_topic: "/jie_3d_nav/start_point"
+
+    goal_pose_topic: "/goal_pose_3d"
+    goal_point_topic: "/goal_point_3d"
+    rviz_2d_goal_topic: "/goal_pose"
+    internal_goal_point_topic: "/jie_3d_nav/goal_point"
+    internal_goal_pose_topic: "/jie_3d_nav/goal_pose"
+    default_goal_z: 0.0
+
+    octomap_topic: "/octomap"
+    octomap_file: "maps/map_preprocessed.bt"
+    map_pcd_file: "maps/map_preprocessed.pcd"
+    resolution: 0.2
+    publish_octomap_from_file: true
+    octomap_publish_rate: 1.0
+
+    raw_path_topic: "/jie_3d_nav/planned_path_raw"
+    publish_path_topic: "/planned_path"
+    publish_alias_path_topic: "/path"
+    publish_marker_topic: "/planned_path_marker"
+    status_topic: "/jie_3d_global_planner/status"
+
+    tf_lookup_timeout: 0.25
+    planning_timeout: 8.0
+    marker_line_width: 0.08
+    start_z_override_enabled: false
+    start_z_override: 0.0
+
+jie_path_node:
+  ros__parameters:
+    octomap_topic: "/octomap"
+    start_topic: "/jie_3d_nav/start_point"
+    goal_topic: "/jie_3d_nav/goal_point"
+    goal_pose_topic: "/jie_3d_nav/goal_pose"
+
+    path_topic: "/jie_3d_nav/planned_path_raw"
+    path_marker_topic: "/jie_3d_nav/planned_path_marker_raw"
+    preblocked_marker_topic: "/preblocked_cells_markers"
+    external_preblocked_marker_topic: "/edited_preblocked_cells_markers"
+    edited_occupied_marker_topic: "/edited_occupied_markers"
+    traversable_marker_topic: "/traversable_cells_markers"
+    risk_cost_topic: "/risk_cost_cells"
+
+    frame_id: "map"
+    map_id: "nav3d_jie_octomap"
+    source_world_file: ""
+
+    robot_radius: 0.35
+    max_iterations: 500000
+    snap_search_radius_cells: 12
+    require_ground_support: true
+    strict_direct_ground_support: false
+    ground_support_xy_radius_cells: 1
+    ground_support_depth_cells: 1
+    enable_preblocked_costmap: true
+    preblocked_costmap_radius_cells: 3
+    preblocked_costmap_weight: 2.5
+    lowest_traversable_only: false
+
+jie_3d_pcd_to_octomap:
+  ros__parameters:
+    pcd_file: "maps/map_preprocessed.pcd"
+    pcd_file_cmd_topic: "/pcd_file_cmd"
+    octomap_topic: "/octomap"
+    frame_id: "map"
+    resolution: 0.2
+    voxel_downsample_m: 0.0
+    min_points_per_voxel: 3
+    min_cluster_voxels: 4
+
+jie_octomap_occupied_markers:
+  ros__parameters:
+    octomap_topic: "/octomap"
+    marker_topic: "/octomap_occupied_markers"
+    frame_id: "map"

@@ -22,10 +22,12 @@ def latched_qos():
     )
 
 
-def _override_pair(default_value, x_value, y_value):
+def _override_pose(default_value, x_value, y_value, z_value=float('nan')):
     if math.isnan(float(x_value)) or math.isnan(float(y_value)):
         return default_value
-    return np.array([float(x_value), float(y_value)], dtype=np.float32)
+    if math.isnan(float(z_value)):
+        return np.array([float(x_value), float(y_value)], dtype=np.float32)
+    return np.array([float(x_value), float(y_value), float(z_value)], dtype=np.float32)
 
 
 def _as_bool(value):
@@ -67,12 +69,15 @@ class PlannerNode(Node):
         self.declare_parameter('astar_cost_threshold', PlannerConfig.astar_cost_threshold)
         self.declare_parameter('astar_step_cost_weight', PlannerConfig.astar_step_cost_weight)
         self.declare_parameter('optimizer_safe_cost_threshold', PlannerConfig.optimizer_safe_cost_threshold)
+        self.declare_parameter('max_path_z_jump', PlannerConfig.max_path_z_jump)
         self.declare_parameter('map_frame', ROSConfig.map_frame)
         self.declare_parameter('path_topic', ROSConfig.path_topic)
         self.declare_parameter('start_x', float('nan'))
         self.declare_parameter('start_y', float('nan'))
+        self.declare_parameter('start_z', float('nan'))
         self.declare_parameter('goal_x', float('nan'))
         self.declare_parameter('goal_y', float('nan'))
+        self.declare_parameter('goal_z', float('nan'))
         self.declare_parameter('start_pose_topic', '/pct_planner/start_pose')
         self.declare_parameter('goal_pose_topic', '/pct_planner/goal_pose')
         self.declare_parameter('plan_on_pose_update', True)
@@ -83,15 +88,17 @@ class PlannerNode(Node):
 
         tomogram_file = self.get_parameter('tomogram_file').value
         self.tomogram_file = tomogram_file if tomogram_file else defaults.tomogram_file
-        self.start_pos = _override_pair(
+        self.start_pos = _override_pose(
             defaults.start_pos,
             self.get_parameter('start_x').value,
             self.get_parameter('start_y').value,
+            self.get_parameter('start_z').value,
         )
-        self.goal_pos = _override_pair(
+        self.goal_pos = _override_pose(
             defaults.goal_pos,
             self.get_parameter('goal_x').value,
             self.get_parameter('goal_y').value,
+            self.get_parameter('goal_z').value,
         )
         self.map_frame = self.get_parameter('map_frame').value
         self.start_pose_topic = self.get_parameter('start_pose_topic').value
@@ -110,6 +117,7 @@ class PlannerNode(Node):
             astar_cost_threshold=float(self.get_parameter('astar_cost_threshold').value),
             astar_step_cost_weight=float(self.get_parameter('astar_step_cost_weight').value),
             optimizer_safe_cost_threshold=float(self.get_parameter('optimizer_safe_cost_threshold').value),
+            max_path_z_jump=float(self.get_parameter('max_path_z_jump').value),
         )
         self.path_pub = self.create_publisher(Path, self.get_parameter('path_topic').value, latched_qos())
         self.planner = TomogramPlanner(planner_cfg, logger=self.get_logger())

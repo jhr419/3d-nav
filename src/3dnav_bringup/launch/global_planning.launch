@@ -1,8 +1,12 @@
 <launch>
   <arg name="use_sim_time" default="false"/>
   <arg name="rviz" default="true"/>
+  <arg name="algorithm" default=""/>
+  <arg name="system_config" default="$(find-pkg-share nav3d_bringup)/config/nav3d_system.yaml"/>
   <include file="$(find-pkg-share nav3d_bringup)/launch/global_planning_impl.launch.py">
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
     <arg name="launch_rviz" value="$(var rviz)"/>
+    <arg name="algorithm" value="$(var algorithm)"/>
+    <arg name="system_config" value="$(var system_config)"/>
   </include>
 </launch>

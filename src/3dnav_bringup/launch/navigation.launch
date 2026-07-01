@@ -7,6 +7,7 @@
   <arg name="rviz" default="true"/>
   <arg name="start_livox_driver" default="true"/>
   <arg name="start_fastlio" default="true"/>
+  <arg name="global_planner_algorithm" default=""/>
   <include file="$(find-pkg-share nav3d_bringup)/launch/navigation_impl.launch.py">
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
     <arg name="localization" value="$(var localization)"/>
@@ -16,5 +17,6 @@
     <arg name="rviz" value="$(var rviz)"/>
     <arg name="start_livox_driver" value="$(var start_livox_driver)"/>
     <arg name="start_fastlio" value="$(var start_fastlio)"/>
+    <arg name="global_planner_algorithm" value="$(var global_planner_algorithm)"/>
   </include>
 </launch>

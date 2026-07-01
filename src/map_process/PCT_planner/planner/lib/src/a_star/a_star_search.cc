@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <queue>
 #include <unordered_map>
@@ -23,7 +24,8 @@ void Astar::Init(const double cost_threshold, const int num_layers,
                  const Eigen::MatrixXd& ele_map) {
   auto t0 = std::chrono::high_resolution_clock::now();
   cost_threshold_ = cost_threshold;
-step_cost_weight_  = step_cost_weight;
+  step_cost_weight_ = step_cost_weight;
+  resolution_ = resolution;
 
   max_x_ = cost_map.cols();
   max_y_ = cost_map.rows() / num_layers;
@@ -99,6 +101,7 @@ bool Astar::Search(const Eigen::Vector3i& start, const Eigen::Vector3i& goal) {
   open_set.push(start_node);
 
   printf("start searching\n");
+  const double max_neighbor_height_diff = std::max(0.75, 4.0 * resolution_);
 
   while (!open_set.empty()) {
     Node* current_node = open_set.top();
@@ -142,6 +145,12 @@ bool Astar::Search(const Eigen::Vector3i& start, const Eigen::Vector3i& goal) {
       }
 
       auto neighbor_node = &grid_map_[layer][i][j];
+
+      if (current_node->height > -50.0 && neighbor_node->height > -50.0 &&
+          std::abs(neighbor_node->height - current_node->height) >
+              max_neighbor_height_diff) {
+        continue;
+      }
 
       if (neighbor_node->cost > cost_threshold_) {
         if (abs(neighbor_node->ele) < 0.5) {

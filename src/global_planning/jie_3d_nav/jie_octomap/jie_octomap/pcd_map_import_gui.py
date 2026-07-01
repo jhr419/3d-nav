@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 
 import numpy as np
-from jie_octomap.open3d_compat import import_open3d
+import open3d as o3d
 import rclpy
 from geometry_msgs.msg import PointStamped, PoseStamped
 from nav_msgs.msg import Path as PathMsg
@@ -42,13 +42,13 @@ from std_msgs.msg import String
 from visualization_msgs.msg import Marker
 import vtk
 from vtk.util import numpy_support
-
-o3d = import_open3d()
-
 try:
     from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 except ModuleNotFoundError:
     from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+
+
+SAVE_PACKAGE_TIMEOUT_SEC = 180.0
 
 
 class PcdMapImportNode(Node):
@@ -250,7 +250,7 @@ class PcdMapImportNode(Node):
         self._risk_dirty = False
         return self._latest_risk
 
-    def save_package(self, package_path: str, overwrite: bool, timeout_sec: float = 10.0):
+    def save_package(self, package_path: str, overwrite: bool, timeout_sec: float = SAVE_PACKAGE_TIMEOUT_SEC):
         if not self.save_client.wait_for_service(timeout_sec=2.0):
             return False, "保存服务 /map_package_manager/save_package 不可用。"
 
@@ -268,7 +268,52 @@ class PcdMapImportNode(Node):
             executor.shutdown()
 
         if not future.done():
-            return False, "保存地图超时。"
+            return (
+                False,
+                f"保存地图超时（超过 {timeout_sec:.0f} 秒）。地图较大时请稍后检查保存目录，"
+                "或降低 OctoMap 分辨率/先下采样点云后重试。",
+            )
+        result = future.result()
+        if result is None:
+            return False, "保存地图失败，服务没有返回结果。"
+        return bool(result.success), str(result.message)
+
+
+class SaveMapClient(Node):
+    def __init__(self) -> None:
+        super().__init__(f"pcd_map_import_save_client_{time.time_ns()}")
+        self.save_client = self.create_client(
+            SaveNavigationMapPackage, "/map_package_manager/save_package"
+        )
+
+    def save_package(
+        self,
+        package_path: str,
+        overwrite: bool,
+        timeout_sec: float = SAVE_PACKAGE_TIMEOUT_SEC,
+    ) -> tuple[bool, str]:
+        if not self.save_client.wait_for_service(timeout_sec=2.0):
+            return False, "保存服务 /map_package_manager/save_package 不可用。"
+
+        request = SaveNavigationMapPackage.Request()
+        request.package_path = package_path
+        request.overwrite = overwrite
+        future = self.save_client.call_async(request)
+
+        executor = SingleThreadedExecutor()
+        executor.add_node(self)
+        try:
+            executor.spin_until_future_complete(future, timeout_sec=timeout_sec)
+        finally:
+            executor.remove_node(self)
+            executor.shutdown()
+
+        if not future.done():
+            return (
+                False,
+                f"保存地图超时（超过 {timeout_sec:.0f} 秒）。地图较大时请稍后检查保存目录，"
+                "或降低 OctoMap 分辨率/先下采样点云后重试。",
+            )
         result = future.result()
         if result is None:
             return False, "保存地图失败，服务没有返回结果。"
@@ -284,7 +329,7 @@ class SaveWorker(QObject):
         self.overwrite = overwrite
 
     def run(self) -> None:
-        node = PcdMapImportNode()
+        node = SaveMapClient()
         try:
             ok, message = node.save_package(self.package_path, self.overwrite)
         finally:

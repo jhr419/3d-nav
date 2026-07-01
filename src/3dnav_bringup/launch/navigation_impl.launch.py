@@ -22,6 +22,7 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("start_livox_driver", default_value="true"),
         DeclareLaunchArgument("start_fastlio", default_value="true"),
+        DeclareLaunchArgument("global_planner_algorithm", default_value=""),
         DeclareLaunchArgument(
             "rviz_config",
             default_value=package_file("pct_global_planner", "rviz", "pct_global_planner.rviz"),
@@ -41,6 +42,7 @@ def generate_launch_description():
             launch_arguments={
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
                 "launch_rviz": "false",
+                "algorithm": LaunchConfiguration("global_planner_algorithm"),
             }.items(),
             condition=IfCondition(LaunchConfiguration("global_planning")),
         ),

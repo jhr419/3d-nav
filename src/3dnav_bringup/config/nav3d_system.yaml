@@ -3,10 +3,31 @@ paths:
   map_origin_pcd: "maps/map_origin.pcd"
   map_preprocessed_pcd: "maps/map_preprocessed.pcd"
   map_visualization_pcd: "maps/map_visualization.pcd"
+  map_preprocessed_bt: "maps/map_preprocessed.bt"
   tomogram_dir: "maps/tomogram"
   tomogram_file: "map_preprocessed"
   tomogram_pickle: "maps/tomogram/map_preprocessed.pickle"
   planner_lib_dir: "src/map_process/PCT_planner/planner/lib"
+
+global_planning:
+  enabled: true
+  algorithm: "pct"
+  algorithms:
+    pct:
+      package: "pct_global_planner"
+      launch: "pct_global_planner.launch.py"
+      config: "src/global_planning/pct_global_planner/config/pct_global_planner.yaml"
+      launch_arguments:
+        map_file: "maps/map_preprocessed.pcd"
+        pcd_file: "maps/map_preprocessed.pcd"
+        tomogram_file: "map_preprocessed"
+        tomogram_dir: "maps/tomogram"
+        planner_lib_dir: "src/map_process/PCT_planner/planner/lib"
+
+    jie_octomap:
+      package: "octo_planner"
+      launch: "jie_3d_global_planner.launch.py"
+      config: "src/global_planning/jie_3d_nav/octo_planner/config/jie_3d_global_planner.yaml"
 
 modules:
   mapping:
