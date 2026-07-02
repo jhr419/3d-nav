@@ -133,6 +133,12 @@ class TomogramPlanner:
         self.astar_step_cost_weight = float(self.cfg.astar_step_cost_weight)
         self.optimizer_safe_cost_threshold = float(self.cfg.optimizer_safe_cost_threshold)
         self.max_path_z_jump = float(getattr(self.cfg, 'max_path_z_jump', 0.8))
+        self.optimized_path_collision_cost_threshold = float(
+            getattr(self.cfg, 'optimized_path_collision_cost_threshold', self.astar_cost_threshold)
+        )
+        self.optimized_path_collision_check_resolution = float(
+            getattr(self.cfg, 'optimized_path_collision_check_resolution', 0.10)
+        )
 
         self.tomo_dir = Path(self.cfg.tomogram_dir).expanduser()
         self.a_star, self.ele_planner, self.traj_opt = load_planner_modules(
@@ -151,6 +157,8 @@ class TomogramPlanner:
         self.elev_g = None
         self.elev_c = None
         self.a_start_cost_threshold = self.astar_cost_threshold
+        self.last_raw_traj_3d = None
+        self.last_optimized_traj_3d = None
 
         self.start_idx = np.zeros(3, dtype=np.int32)
         self.end_idx = np.zeros(3, dtype=np.int32)
@@ -175,11 +183,16 @@ class TomogramPlanner:
         trav_gy = tomogram[2]
         elev_g = tomogram[3]
         elev_c = tomogram[4]
+        self.trav_base = trav.copy()
         self.trav = trav.copy()
+        self.trav_gx = trav_gx.copy()
+        self.trav_gy = trav_gy.copy()
         self.elev_g = elev_g.copy()
         self.elev_c = elev_c.copy()
         elev_g = np.nan_to_num(elev_g, nan=-100)
         elev_c = np.nan_to_num(elev_c, nan=1e6)
+        self.elev_g_planner = elev_g.copy()
+        self.elev_c_planner = elev_c.copy()
 
         self.init_planner(trav, trav_gx, trav_gy, elev_g, elev_c)
 
@@ -219,6 +232,51 @@ class TomogramPlanner:
             -trav_gx.reshape(-1, trav_gx.shape[-1]).astype(np.double),
         )
 
+    def apply_traversability_cost_overlay(
+        self,
+        overlay,
+        max_total_cost=None,
+        preserve_untraversable=True,
+        recompute_gradients=True,
+    ):
+        if self.trav is None:
+            return False
+
+        overlay = np.asarray(overlay, dtype=np.float32)
+        if overlay.ndim == 2:
+            overlay = np.broadcast_to(overlay[np.newaxis, :, :], self.trav.shape)
+        if overlay.shape != self.trav.shape:
+            raise ValueError(
+                f'Clearance cost overlay shape {overlay.shape} does not match tomogram cost shape {self.trav.shape}'
+            )
+
+        base = np.asarray(self.trav_base, dtype=np.float32)
+        updated = base.copy()
+        valid = np.isfinite(base) & np.isfinite(overlay) & (overlay > 0.0)
+        if preserve_untraversable:
+            valid &= base <= self.a_start_cost_threshold
+        updated[valid] = base[valid] + overlay[valid]
+        if max_total_cost is not None and max_total_cost > 0.0:
+            updated[valid] = np.minimum(updated[valid], float(max_total_cost))
+
+        self.trav = updated.astype(np.float32, copy=False)
+        trav_gx = self.trav_gx.copy()
+        trav_gy = self.trav_gy.copy()
+        if recompute_gradients:
+            trav_gx = np.zeros_like(self.trav, dtype=np.float32)
+            trav_gy = np.zeros_like(self.trav, dtype=np.float32)
+            trav_gx[:, 1:-1, :] = self.trav[:, 2:, :] - self.trav[:, :-2, :]
+            trav_gy[:, :, 1:-1] = self.trav[:, :, 2:] - self.trav[:, :, :-2]
+
+        self.init_planner(
+            self.trav,
+            trav_gx,
+            trav_gy,
+            self.elev_g_planner,
+            self.elev_c_planner,
+        )
+        return True
+
     def plan(self, start_pos, end_pos):
         self.start_idx = self.pose_to_idx(start_pos)
         self.end_idx = self.pose_to_idx(end_pos)
@@ -231,6 +289,9 @@ class TomogramPlanner:
         path = path_finder.get_result_matrix()
         if len(path) == 0:
             return None
+        raw_traj_3d = self.raw_path_to_traj(path)
+        self.last_raw_traj_3d = raw_traj_3d
+        self.last_optimized_traj_3d = None
 
         optimizer = (
             self.planner.get_trajectory_optimizer()
@@ -258,16 +319,27 @@ class TomogramPlanner:
             traj_3d,
             z_offset=self.path_z_offset,
         )
+        self.last_optimized_traj_3d = traj_3d
         if self.has_large_z_jump(traj_3d):
             _log_warning(
                 self.logger,
                 'Optimized trajectory has a large z jump; falling back to raw A* path.',
             )
-            raw_traj_3d = self.raw_path_to_traj(path)
             if raw_traj_3d is not None and not self.has_large_z_jump(raw_traj_3d):
                 return raw_traj_3d
             if self.logger is not None:
                 self.logger.error('Rejected trajectory: raw A* path also has a large z jump.')
+            return None
+
+        if self.has_high_cost_grid_trajectory(traj[:, 0], traj[:, y_idx], layers):
+            _log_warning(
+                self.logger,
+                'Optimized trajectory enters a high-cost cell; falling back to raw A* path.',
+            )
+            if raw_traj_3d is not None and not self.has_large_z_jump(raw_traj_3d):
+                return raw_traj_3d
+            if self.logger is not None:
+                self.logger.error('Rejected trajectory: raw A* fallback is unavailable or unsafe.')
             return None
 
         return traj_3d
@@ -279,6 +351,47 @@ class TomogramPlanner:
         dz = np.abs(np.diff(traj_3d[:, 2]))
         finite_dz = dz[np.isfinite(dz)]
         return finite_dz.size > 0 and float(np.max(finite_dz)) > self.max_path_z_jump
+
+    def has_high_cost_grid_trajectory(self, cols, rows, layers):
+        threshold = self.optimized_path_collision_cost_threshold
+        if threshold <= 0.0 or self.trav is None:
+            return False
+
+        cols = np.asarray(cols, dtype=np.float64)
+        rows = np.asarray(rows, dtype=np.float64)
+        layers = np.asarray(layers, dtype=np.float64)
+        if cols.size == 0 or rows.size != cols.size or layers.size != cols.size:
+            return False
+
+        check_resolution = max(0.05, self.optimized_path_collision_check_resolution)
+        grid_step = max(1.0, check_resolution / max(1.0e-6, self.resolution))
+        for index in range(cols.size):
+            if self._sample_trav_cost(layers[index], rows[index], cols[index]) > threshold:
+                return True
+            if index + 1 >= cols.size:
+                continue
+            d_col = cols[index + 1] - cols[index]
+            d_row = rows[index + 1] - rows[index]
+            d_layer = layers[index + 1] - layers[index]
+            span = max(abs(d_col), abs(d_row), abs(d_layer))
+            steps = max(1, int(np.ceil(span / grid_step)))
+            for step in range(1, steps):
+                ratio = step / float(steps)
+                col = cols[index] + ratio * d_col
+                row = rows[index] + ratio * d_row
+                layer = layers[index] + ratio * d_layer
+                if self._sample_trav_cost(layer, row, col) > threshold:
+                    return True
+        return False
+
+    def _sample_trav_cost(self, layer, row, col):
+        layer_i = int(np.rint(layer))
+        row_i = int(np.rint(row))
+        col_i = int(np.rint(col))
+        if not (0 <= layer_i < self.n_slice and self._in_bounds(row_i, col_i)):
+            return float('inf')
+        cost = float(self.trav[layer_i, row_i, col_i])
+        return cost if np.isfinite(cost) else float('inf')
 
     def raw_path_to_traj(self, path):
         path = np.asarray(path)

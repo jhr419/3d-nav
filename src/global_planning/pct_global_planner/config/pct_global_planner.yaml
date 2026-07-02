@@ -29,7 +29,7 @@ pct_global_planner_node:
     max_heading_rate: 6.0
     path_z_offset: 0.0
     astar_cost_threshold: 20.0
-    astar_step_cost_weight: 0.65
+    astar_step_cost_weight: 0.85
     optimizer_safe_cost_threshold: 8.0
     min_direct_path_distance: 0.35
 
@@ -38,16 +38,79 @@ pct_global_planner_node:
 
     enable_path_smoothing: true
     enable_path_resampling: true
-    path_resample_resolution: 0.2
+    path_resample_resolution: 0.3
     max_path_z_jump: 0.4
+    optimized_path_collision_cost_threshold: 20.0
+    optimized_path_collision_check_resolution: 0.15
     remove_duplicate_points: true
     smoothing_passes: 1
+    path_postprocess_enabled: true
+
+    clearance_cost_enabled: true
+    robot_radius: 0.35
+    leg_safety_margin: 0.20
+    preferred_clearance: 0.50
+    hard_min_clearance: 0.25
+    clearance_weight: 4.0
+    path_length_weight: 1.0
+    smoothness_weight: 3.0
+    centerline_weight: 1.0
+    stair_edge_weight: 1.5
+    unknown_as_occupied: true
+
+    adaptive_inflation_enabled: true
+    normal_inflation_radius: 0.32
+    narrow_passage_inflation_radius: 0.20
+    stair_area_inflation_radius: 0.45
+    narrow_passage_detect_enabled: true
+    narrow_passage_width_threshold: 0.9
+    narrow_passage_min_clearance: 0.20
+    stair_edge_detect_enabled: false
+    stair_edge_z_gradient_threshold: 0.45
+    stair_edge_clearance_boost: 1.0
+
+    enable_clearance_optimization: true
+    clearance_optimization_iterations: 35
+    clearance_optimization_step: 0.04
+    smoothing_iterations: 18
+    max_smoothing_deviation: 0.8
+    keep_start_goal_fixed: false
+
+    map_distance_max_points: 250000
+    map_distance_xy_resolution: 0.15
+    obstacle_min_relative_z: 0.30
+    obstacle_max_relative_z: 1.40
+    height_aware_clearance_enabled: true
+    body_obstacle_min_relative_z: 0.20
+    body_obstacle_max_relative_z: 1.60
+    body_clearance_check_radius: 0.70
+    body_clearance_use_all_map_points: false
+    terrain_grid_resolution: 0.25
+    terrain_edge_check_radius: 0.35
+
+    global_search_clearance_enabled: true
+    global_search_preferred_clearance: 0.50
+    global_search_hard_min_clearance: 0.25
+    global_search_clearance_weight: 35.0
+    global_search_clearance_power: 2.0
+    global_search_clearance_max_extra_cost: 12.0
+    global_search_clearance_max_total_cost: 17.5
 
     publish_path_topic: "/planned_path"
     publish_alias_path_topic: "/path"
     publish_marker_topic: "/planned_path_marker"
     status_topic: "/pct_global_planner/status"
+    global_planner_debug_topic: "/global_planner/debug"
+    planned_path_clearance_marker_topic: "/planned_path_clearance_marker"
+    planned_path_risk_marker_topic: "/planned_path_risk_marker"
+    global_clearance_map_marker_topic: "/global_clearance_map_marker"
+    publish_path_risk_debug: false
+    publish_global_clearance_map_debug: false
+    global_clearance_map_max_samples: 0
     marker_line_width: 0.08
+    debug_output_enabled: false
+    debug_output_dir: "debug"
+    debug_render_images: false
 
     publish_current_start: true
     current_start_pose_topic: "/pct_global_planner/current_start_pose"
@@ -56,7 +119,7 @@ pct_global_planner_node:
     current_start_marker_scale: 0.35
     mirror_current_start_to_start_pose_topic: false
 
-    auto_replan_on_start_update: true
+    auto_replan_on_start_update: false
     start_update_min_distance: 0.5
 
 pct_global_map_publisher:

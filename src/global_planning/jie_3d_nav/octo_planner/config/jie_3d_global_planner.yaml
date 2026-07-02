@@ -28,6 +28,16 @@ jie_3d_global_planner_adapter:
     publish_alias_path_topic: "/path"
     publish_marker_topic: "/planned_path_marker"
     status_topic: "/jie_3d_global_planner/status"
+    global_planner_debug_topic: "/global_planner/debug"
+    planned_path_clearance_marker_topic: "/planned_path_clearance_marker"
+    planned_path_risk_marker_topic: "/planned_path_risk_marker"
+    global_clearance_map_marker_topic: "/global_clearance_map_marker"
+
+    clearance_cost_enabled: true
+    preferred_clearance: 0.75
+    hard_min_clearance: 0.35
+    normal_inflation_radius: 0.45
+    clearance_weight: 2.0
 
     tf_lookup_timeout: 0.25
     planning_timeout: 8.0

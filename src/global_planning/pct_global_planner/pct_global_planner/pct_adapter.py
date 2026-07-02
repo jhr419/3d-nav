@@ -3,6 +3,8 @@ import sys
 import math
 from pathlib import Path
 
+import numpy as np
+
 
 Point3 = tuple[float, float, float]
 
@@ -61,11 +63,19 @@ class PCTPlannerAdapter:
                 astar_cost_threshold=float(self._param("astar_cost_threshold", 20.0)),
                 astar_step_cost_weight=float(self._param("astar_step_cost_weight", 0.5)),
                 optimizer_safe_cost_threshold=float(self._param("optimizer_safe_cost_threshold", 8.0)),
+                max_path_z_jump=float(self._param("max_path_z_jump", 0.8)),
+                optimized_path_collision_cost_threshold=float(
+                    self._param("optimized_path_collision_cost_threshold", 20.0)
+                ),
+                optimized_path_collision_check_resolution=float(
+                    self._param("optimized_path_collision_check_resolution", 0.10)
+                ),
             )
 
             self.planner = TomogramPlanner(planner_cfg, logger=self.logger)
             self.logger.info(f"Loading PCT tomogram: {tomogram_path}")
             self.planner.load_tomogram(tomogram_file)
+            self._apply_clearance_cost_layer_to_pct_search()
             self.min_direct_path_distance = float(self._param("min_direct_path_distance", 0.35))
 
             self.tomogram_file = tomogram_file
@@ -77,6 +87,100 @@ class PCTPlannerAdapter:
             self.last_error = f"Failed to initialize PCT Planner adapter: {exc}"
             self.logger.error(self.last_error)
             return False
+
+    def _apply_clearance_cost_layer_to_pct_search(self) -> None:
+        if not self._as_bool(self._param("global_search_clearance_enabled", True)):
+            return
+        if self.planner is None or not hasattr(self.planner, "apply_traversability_cost_overlay"):
+            return
+
+        safety_map = getattr(self.node, "safety_map", None)
+        if safety_map is None or not getattr(safety_map, "loaded", False):
+            self.logger.warning("PCT A* clearance layer disabled because safety_map is not loaded.")
+            return
+        if getattr(safety_map, "obstacle_points", np.empty((0, 3))).size == 0:
+            self.logger.warning("PCT A* clearance layer disabled because no obstacle points are available.")
+            return
+
+        overlay = self._build_clearance_overlay(safety_map)
+        if overlay is None:
+            return
+
+        max_total_cost = float(self._param("global_search_clearance_max_total_cost", 19.5))
+        self.planner.apply_traversability_cost_overlay(
+            overlay,
+            max_total_cost=max_total_cost,
+            preserve_untraversable=True,
+            recompute_gradients=True,
+        )
+
+        finite = overlay[np.isfinite(overlay)]
+        active = finite[finite > 1.0e-6]
+        if active.size == 0:
+            self.logger.info("PCT A* clearance layer built but has no active cells.")
+            return
+        self.logger.info(
+            "Applied PCT A* clearance layer: active_cells=%d mean_extra=%.3f max_extra=%.3f max_total_cost=%.3f"
+            % (active.size, float(np.mean(active)), float(np.max(active)), max_total_cost)
+        )
+
+    def _build_clearance_overlay(self, safety_map):
+        resolution = float(getattr(self.planner, "resolution", 0.0) or 0.0)
+        center = np.asarray(getattr(self.planner, "center", [0.0, 0.0]), dtype=np.float64)
+        map_dim = list(getattr(self.planner, "map_dim", []) or [])
+        if resolution <= 0.0 or len(map_dim) != 2:
+            self.logger.warning("Cannot build PCT A* clearance layer: invalid tomogram geometry.")
+            return None
+
+        rows = np.arange(map_dim[0], dtype=np.float64)
+        cols = np.arange(map_dim[1], dtype=np.float64)
+        xs = (rows - 0.5 * map_dim[0]) * resolution + center[0]
+        ys = (cols - 0.5 * map_dim[1]) * resolution + center[1]
+        xx, yy = np.meshgrid(xs, ys, indexing="ij")
+        query = np.column_stack((xx.reshape(-1), yy.reshape(-1)))
+
+        clearance = self._query_clearance_batch(safety_map, query).reshape(map_dim[0], map_dim[1])
+        preferred = float(self._param("global_search_preferred_clearance", self._param("preferred_clearance", 0.50)))
+        hard = float(self._param("global_search_hard_min_clearance", self._param("hard_min_clearance", 0.25)))
+        hard = min(hard, preferred - 1.0e-3)
+        span = max(1.0e-3, preferred - hard)
+
+        ratio = np.clip((preferred - clearance) / span, 0.0, 1.0)
+        weight = float(self._param("global_search_clearance_weight", 45.0))
+        power = float(self._param("global_search_clearance_power", 2.0))
+        max_extra = float(self._param("global_search_clearance_max_extra_cost", 18.0))
+        overlay_2d = weight * np.power(ratio, power)
+        if max_extra > 0.0:
+            overlay_2d = np.minimum(overlay_2d, max_extra)
+        overlay_2d[~np.isfinite(overlay_2d)] = 0.0
+
+        # Do not spend search effort shaping cells that PCT already treats as obstacles.
+        trav = np.asarray(getattr(self.planner, "trav", np.empty((0,))), dtype=np.float32)
+        if trav.ndim == 3 and trav.shape[1:] == overlay_2d.shape:
+            traversable_any_layer = np.any(trav <= float(self._param("astar_cost_threshold", 20.0)), axis=0)
+            overlay_2d = np.where(traversable_any_layer, overlay_2d, 0.0)
+
+        return overlay_2d.astype(np.float32, copy=False)
+
+    @staticmethod
+    def _query_clearance_batch(safety_map, query: np.ndarray) -> np.ndarray:
+        tree = getattr(safety_map, "obstacle_tree", None)
+        if tree is not None:
+            distances, _ = tree.query(query, k=1)
+            return np.asarray(distances, dtype=np.float32)
+
+        points = np.asarray(getattr(safety_map, "obstacle_points", np.empty((0, 3))), dtype=np.float32)
+        if points.size == 0:
+            return np.full(query.shape[0], np.inf, dtype=np.float32)
+
+        out = np.empty(query.shape[0], dtype=np.float32)
+        chunk_size = 4096
+        obstacles_xy = points[:, :2].astype(np.float32, copy=False)
+        for start in range(0, query.shape[0], chunk_size):
+            stop = min(query.shape[0], start + chunk_size)
+            diff = query[start:stop, np.newaxis, :].astype(np.float32) - obstacles_xy[np.newaxis, :, :]
+            out[start:stop] = np.sqrt(np.min(np.sum(diff * diff, axis=2), axis=1))
+        return out
 
     def plan(self, start: Point3, goal: Point3) -> tuple[bool, list[Point3]]:
         if not self.initialized or self.planner is None:
@@ -124,10 +228,65 @@ class PCTPlannerAdapter:
                 (float(row[0]), float(row[1]), float(row[2]))
                 for row in traj[:, :3]
             ]
+            path = self._maybe_use_raw_astar_fallback(path)
             return True, path
         except Exception as exc:  # noqa: BLE001 - planning failures should surface in ROS logs/status.
             self.last_error = f"PCT planning failed: {exc}"
             return False, []
+
+    def _maybe_use_raw_astar_fallback(self, path: list[Point3]) -> list[Point3]:
+        safety_map = getattr(self.node, "safety_map", None)
+        if safety_map is None or not getattr(safety_map, "loaded", False):
+            return path
+        if self._path_clearance_valid(path, safety_map):
+            return path
+
+        raw_traj = getattr(self.planner, "last_raw_traj_3d", None)
+        if raw_traj is None:
+            self.logger.warning("PCT optimized path failed height-aware clearance validation; no raw A* fallback available.")
+            return path
+
+        raw_traj = np.asarray(raw_traj, dtype=np.float64)
+        if raw_traj.ndim != 2 or raw_traj.shape[1] < 3 or raw_traj.shape[0] == 0:
+            self.logger.warning("PCT optimized path failed height-aware clearance validation; raw A* fallback is invalid.")
+            return path
+
+        raw_path = [
+            (float(row[0]), float(row[1]), float(row[2]))
+            for row in raw_traj[:, :3]
+        ]
+        if self._path_clearance_valid(raw_path, safety_map):
+            self.logger.warning(
+                "PCT optimized path failed height-aware clearance validation; using raw A* fallback to avoid railings."
+            )
+            return raw_path
+
+        self.logger.warning(
+            "PCT optimized path failed height-aware clearance validation, but raw A* fallback is also too close to obstacles."
+        )
+        return path
+
+    def _path_clearance_valid(self, path: list[Point3], safety_map) -> bool:
+        if len(path) < 2:
+            return False
+        sample_resolution = max(0.05, float(self._param("path_resample_resolution", 0.2)) * 0.5)
+        for index, point in enumerate(path):
+            if safety_map.query_obstacle_distance(point) < safety_map.required_clearance(point):
+                return False
+            if index + 1 >= len(path):
+                continue
+            segment = self._distance(point, path[index + 1])
+            steps = max(1, int(math.ceil(segment / sample_resolution)))
+            for step in range(1, steps):
+                ratio = step / float(steps)
+                sample = (
+                    point[0] + (path[index + 1][0] - point[0]) * ratio,
+                    point[1] + (path[index + 1][1] - point[1]) * ratio,
+                    point[2] + (path[index + 1][2] - point[2]) * ratio,
+                )
+                if safety_map.query_obstacle_distance(sample) < safety_map.required_clearance(sample):
+                    return False
+        return True
 
     @staticmethod
     def _distance(a: Point3, b: Point3) -> float:

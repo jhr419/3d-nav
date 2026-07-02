@@ -1,4 +1,5 @@
 import math
+import time
 from typing import Optional
 
 import rclpy
@@ -14,15 +15,17 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from std_msgs.msg import String
+from std_msgs.msg import ColorRGBA, String
 from std_srvs.srv import Trigger
-from visualization_msgs.msg import Marker
+from visualization_msgs.msg import Marker, MarkerArray
 
+from .debug_artifacts import save_debug_artifacts
 from .path_postprocessor import (
     PathPostprocessConfig,
+    PlanningSafetyMap,
     distance,
     path_length,
-    postprocess_path,
+    postprocess_path_with_report,
 )
 from .pct_adapter import PCTPlannerAdapter, Point3
 
@@ -69,6 +72,22 @@ class PCTGlobalPlannerNode(Node):
 
         self.marker_pub = self.create_publisher(Marker, self.publish_marker_topic, latched_qos())
         self.status_pub = self.create_publisher(String, self.status_topic, latched_qos())
+        self.global_debug_pub = self.create_publisher(String, self.global_planner_debug_topic, latched_qos())
+        self.clearance_marker_pub = self.create_publisher(
+            MarkerArray,
+            self.planned_path_clearance_marker_topic,
+            latched_qos(),
+        )
+        self.risk_marker_pub = self.create_publisher(
+            MarkerArray,
+            self.planned_path_risk_marker_topic,
+            latched_qos(),
+        )
+        self.global_clearance_marker_pub = self.create_publisher(
+            MarkerArray,
+            self.global_clearance_map_marker_topic,
+            latched_qos(),
+        )
         self.replan_srv = self.create_service(Trigger, "/replan_global_path", self._handle_replan)
         self.current_start_pub = self.create_publisher(
             PoseStamped,
@@ -106,6 +125,9 @@ class PCTGlobalPlannerNode(Node):
         self._create_goal_subscriptions()
 
         self.adapter = PCTPlannerAdapter()
+        self.safety_map = PlanningSafetyMap(self.postprocess_cfg, logger=self.get_logger())
+        if self.postprocess_cfg.clearance_cost_enabled:
+            self.safety_map.load()
         self._set_status("WAITING_FOR_MAP")
         if self.adapter.initialize(self):
             self._set_status("WAITING_FOR_GOAL")
@@ -160,22 +182,80 @@ class PCTGlobalPlannerNode(Node):
             "max_heading_rate": 6.0,
             "path_z_offset": 0.0,
             "astar_cost_threshold": 20.0,
-            "astar_step_cost_weight": 0.65,
+            "astar_step_cost_weight": 0.85,
             "optimizer_safe_cost_threshold": 8.0,
             "min_direct_path_distance": 0.35,
             "start_z_override_enabled": False,
             "start_z_override": 0.0,
             "enable_path_smoothing": True,
             "enable_path_resampling": True,
-            "path_resample_resolution": 0.2,
+            "path_resample_resolution": 0.3,
             "max_path_z_jump": 0.4,
+            "optimized_path_collision_cost_threshold": 20.0,
+            "optimized_path_collision_check_resolution": 0.15,
             "remove_duplicate_points": True,
             "smoothing_passes": 1,
+            "clearance_cost_enabled": True,
+            "robot_radius": 0.35,
+            "leg_safety_margin": 0.20,
+            "preferred_clearance": 0.75,
+            "hard_min_clearance": 0.35,
+            "clearance_weight": 2.0,
+            "path_length_weight": 1.0,
+            "smoothness_weight": 0.5,
+            "centerline_weight": 1.0,
+            "stair_edge_weight": 3.0,
+            "unknown_as_occupied": True,
+            "adaptive_inflation_enabled": True,
+            "normal_inflation_radius": 0.45,
+            "narrow_passage_inflation_radius": 0.25,
+            "stair_area_inflation_radius": 0.60,
+            "narrow_passage_detect_enabled": True,
+            "narrow_passage_width_threshold": 1.2,
+            "narrow_passage_min_clearance": 0.25,
+            "stair_edge_detect_enabled": True,
+            "stair_edge_z_gradient_threshold": 0.20,
+            "stair_edge_clearance_boost": 1.5,
+            "path_postprocess_enabled": True,
+            "enable_clearance_optimization": True,
+            "clearance_optimization_iterations": 35,
+            "clearance_optimization_step": 0.05,
+            "smoothing_iterations": 18,
+            "max_smoothing_deviation": 0.8,
+            "keep_start_goal_fixed": True,
+            "map_distance_max_points": 250000,
+            "map_distance_xy_resolution": 0.15,
+            "obstacle_min_relative_z": 0.12,
+            "obstacle_max_relative_z": 1.60,
+            "height_aware_clearance_enabled": True,
+            "body_obstacle_min_relative_z": 0.20,
+            "body_obstacle_max_relative_z": 1.60,
+            "body_clearance_check_radius": 0.70,
+            "body_clearance_use_all_map_points": False,
+            "terrain_grid_resolution": 0.25,
+            "terrain_edge_check_radius": 0.60,
+            "global_search_clearance_enabled": True,
+            "global_search_preferred_clearance": 0.50,
+            "global_search_hard_min_clearance": 0.25,
+            "global_search_clearance_weight": 35.0,
+            "global_search_clearance_power": 2.0,
+            "global_search_clearance_max_extra_cost": 12.0,
+            "global_search_clearance_max_total_cost": 17.5,
             "publish_path_topic": "/planned_path",
             "publish_alias_path_topic": "/path",
             "publish_marker_topic": "/planned_path_marker",
             "status_topic": "/pct_global_planner/status",
+            "global_planner_debug_topic": "/global_planner/debug",
+            "planned_path_clearance_marker_topic": "/planned_path_clearance_marker",
+            "planned_path_risk_marker_topic": "/planned_path_risk_marker",
+            "global_clearance_map_marker_topic": "/global_clearance_map_marker",
+            "publish_path_risk_debug": False,
+            "publish_global_clearance_map_debug": False,
+            "global_clearance_map_max_samples": 0,
             "marker_line_width": 0.08,
+            "debug_output_enabled": False,
+            "debug_output_dir": "debug",
+            "debug_render_images": False,
             "publish_current_start": True,
             "current_start_pose_topic": "/pct_global_planner/current_start_pose",
             "current_start_marker_topic": "/pct_global_planner/current_start_marker",
@@ -207,6 +287,8 @@ class PCTGlobalPlannerNode(Node):
 
         self.start_z_override_enabled = as_bool(self.get_parameter("start_z_override_enabled").value)
         self.start_z_override = float(self.get_parameter("start_z_override").value)
+        self.map_file = str(self.get_parameter("map_file").value)
+        self.pcd_file = str(self.get_parameter("pcd_file").value)
 
         self.postprocess_cfg = PathPostprocessConfig(
             enable_path_smoothing=as_bool(self.get_parameter("enable_path_smoothing").value),
@@ -215,13 +297,64 @@ class PCTGlobalPlannerNode(Node):
             max_path_z_jump=float(self.get_parameter("max_path_z_jump").value),
             remove_duplicate_points=as_bool(self.get_parameter("remove_duplicate_points").value),
             smoothing_passes=int(self.get_parameter("smoothing_passes").value),
+            clearance_cost_enabled=as_bool(self.get_parameter("clearance_cost_enabled").value),
+            robot_radius=float(self.get_parameter("robot_radius").value),
+            leg_safety_margin=float(self.get_parameter("leg_safety_margin").value),
+            preferred_clearance=float(self.get_parameter("preferred_clearance").value),
+            hard_min_clearance=float(self.get_parameter("hard_min_clearance").value),
+            clearance_weight=float(self.get_parameter("clearance_weight").value),
+            path_length_weight=float(self.get_parameter("path_length_weight").value),
+            smoothness_weight=float(self.get_parameter("smoothness_weight").value),
+            centerline_weight=float(self.get_parameter("centerline_weight").value),
+            stair_edge_weight=float(self.get_parameter("stair_edge_weight").value),
+            unknown_as_occupied=as_bool(self.get_parameter("unknown_as_occupied").value),
+            adaptive_inflation_enabled=as_bool(self.get_parameter("adaptive_inflation_enabled").value),
+            normal_inflation_radius=float(self.get_parameter("normal_inflation_radius").value),
+            narrow_passage_inflation_radius=float(self.get_parameter("narrow_passage_inflation_radius").value),
+            stair_area_inflation_radius=float(self.get_parameter("stair_area_inflation_radius").value),
+            narrow_passage_detect_enabled=as_bool(self.get_parameter("narrow_passage_detect_enabled").value),
+            narrow_passage_width_threshold=float(self.get_parameter("narrow_passage_width_threshold").value),
+            narrow_passage_min_clearance=float(self.get_parameter("narrow_passage_min_clearance").value),
+            stair_edge_detect_enabled=as_bool(self.get_parameter("stair_edge_detect_enabled").value),
+            stair_edge_z_gradient_threshold=float(self.get_parameter("stair_edge_z_gradient_threshold").value),
+            stair_edge_clearance_boost=float(self.get_parameter("stair_edge_clearance_boost").value),
+            path_postprocess_enabled=as_bool(self.get_parameter("path_postprocess_enabled").value),
+            enable_clearance_optimization=as_bool(self.get_parameter("enable_clearance_optimization").value),
+            clearance_optimization_iterations=int(self.get_parameter("clearance_optimization_iterations").value),
+            clearance_optimization_step=float(self.get_parameter("clearance_optimization_step").value),
+            smoothing_iterations=int(self.get_parameter("smoothing_iterations").value),
+            max_smoothing_deviation=float(self.get_parameter("max_smoothing_deviation").value),
+            keep_start_goal_fixed=as_bool(self.get_parameter("keep_start_goal_fixed").value),
+            pcd_file=self.pcd_file,
+            map_file=self.map_file,
+            map_distance_max_points=int(self.get_parameter("map_distance_max_points").value),
+            map_distance_xy_resolution=float(self.get_parameter("map_distance_xy_resolution").value),
+            obstacle_min_relative_z=float(self.get_parameter("obstacle_min_relative_z").value),
+            obstacle_max_relative_z=float(self.get_parameter("obstacle_max_relative_z").value),
+            height_aware_clearance_enabled=as_bool(self.get_parameter("height_aware_clearance_enabled").value),
+            body_obstacle_min_relative_z=float(self.get_parameter("body_obstacle_min_relative_z").value),
+            body_obstacle_max_relative_z=float(self.get_parameter("body_obstacle_max_relative_z").value),
+            body_clearance_check_radius=float(self.get_parameter("body_clearance_check_radius").value),
+            body_clearance_use_all_map_points=as_bool(self.get_parameter("body_clearance_use_all_map_points").value),
+            terrain_grid_resolution=float(self.get_parameter("terrain_grid_resolution").value),
+            terrain_edge_check_radius=float(self.get_parameter("terrain_edge_check_radius").value),
         )
 
         self.publish_path_topic = str(self.get_parameter("publish_path_topic").value)
         self.publish_alias_path_topic = str(self.get_parameter("publish_alias_path_topic").value)
         self.publish_marker_topic = str(self.get_parameter("publish_marker_topic").value)
         self.status_topic = str(self.get_parameter("status_topic").value)
+        self.global_planner_debug_topic = str(self.get_parameter("global_planner_debug_topic").value)
+        self.planned_path_clearance_marker_topic = str(self.get_parameter("planned_path_clearance_marker_topic").value)
+        self.planned_path_risk_marker_topic = str(self.get_parameter("planned_path_risk_marker_topic").value)
+        self.global_clearance_map_marker_topic = str(self.get_parameter("global_clearance_map_marker_topic").value)
+        self.publish_path_risk_debug = as_bool(self.get_parameter("publish_path_risk_debug").value)
+        self.publish_global_clearance_map_debug = as_bool(self.get_parameter("publish_global_clearance_map_debug").value)
+        self.global_clearance_map_max_samples = int(self.get_parameter("global_clearance_map_max_samples").value)
         self.marker_line_width = float(self.get_parameter("marker_line_width").value)
+        self.debug_output_enabled = as_bool(self.get_parameter("debug_output_enabled").value)
+        self.debug_output_dir = str(self.get_parameter("debug_output_dir").value)
+        self.debug_render_images = as_bool(self.get_parameter("debug_render_images").value)
         self.publish_current_start = as_bool(self.get_parameter("publish_current_start").value)
         self.current_start_pose_topic = str(self.get_parameter("current_start_pose_topic").value)
         self.current_start_marker_topic = str(self.get_parameter("current_start_marker_topic").value)
@@ -339,23 +472,58 @@ class PCTGlobalPlannerNode(Node):
             % (start[0], start[1], start[2], goal[0], goal[1], goal[2])
         )
 
+        t0 = time.perf_counter()
         ok, raw_path = self.adapter.plan(start, goal)
+        t_plan = time.perf_counter()
         if not ok:
             self.get_logger().error(self.adapter.last_error or "PCT planning failed.")
             self._set_status("FAILED")
             return False
 
-        path = self._add_exact_endpoints(raw_path, start, goal)
-        path = postprocess_path(path, self.postprocess_cfg)
+        path_with_endpoints = self._add_exact_endpoints(raw_path, start, goal)
+        result = postprocess_path_with_report(path_with_endpoints, self.postprocess_cfg, self.safety_map)
+        t_postprocess = time.perf_counter()
+        path = result.optimized_path
         if not path:
             self.get_logger().error("Path postprocessing removed all waypoints.")
             self._set_status("FAILED")
             return False
 
         self._publish_path(path)
+        self._publish_risk_debug(path, result.metrics_after)
+        self._publish_global_clearance_map()
+        t_publish = time.perf_counter()
+        if self.debug_output_enabled:
+            save_debug_artifacts(
+                result.raw_path,
+                path,
+                self.safety_map,
+                self.postprocess_cfg,
+                self.debug_output_dir,
+                self.debug_render_images,
+                logger=self.get_logger(),
+            )
+        t_debug = time.perf_counter()
         length = path_length(path)
         self.get_logger().info(
-            "PCT global path published: points=%d length=%.3fm" % (len(path), length)
+            "PCT global path published: points=%d length=%.3fm min_clearance=%.3fm avg_clearance=%.3fm postprocess_improved=%s"
+            % (
+                len(path),
+                length,
+                result.metrics_after.min_clearance,
+                result.metrics_after.avg_clearance,
+                result.metrics_after.postprocess_improved,
+            )
+        )
+        self.get_logger().info(
+            "PCT planning timing: pct_core=%.1fms postprocess=%.1fms publish_debug=%.1fms file_debug=%.1fms total=%.1fms"
+            % (
+                (t_plan - t0) * 1000.0,
+                (t_postprocess - t_plan) * 1000.0,
+                (t_publish - t_postprocess) * 1000.0,
+                (t_debug - t_publish) * 1000.0,
+                (t_debug - t0) * 1000.0,
+            )
         )
         self.last_replan_start = start
         self._set_status("SUCCESS")
@@ -574,6 +742,142 @@ class PCTGlobalPlannerNode(Node):
             p.x, p.y, p.z = point
             marker.points.append(p)
         self.marker_pub.publish(marker)
+
+    def _publish_risk_debug(self, points: list[Point3], metrics) -> None:
+        if self.publish_path_risk_debug:
+            stamp = self.get_clock().now().to_msg()
+            self.clearance_marker_pub.publish(
+                self._make_path_risk_marker_array(
+                    points,
+                    stamp,
+                    "planned_path_clearance",
+                    color_by_clearance=True,
+                )
+            )
+            self.risk_marker_pub.publish(
+                self._make_path_risk_marker_array(
+                    points,
+                    stamp,
+                    "planned_path_risk",
+                    color_by_clearance=False,
+                )
+            )
+
+        msg = String()
+        msg.data = (
+            "path_length=%.3f min_clearance=%s avg_clearance=%s max_risk=%.3f "
+            "max_risk_point=(%.3f, %.3f, %.3f) narrow_passage_count=%d "
+            "stair_edge_risk_count=%d postprocess_improved=%s"
+            % (
+                metrics.path_length,
+                self._format_float(metrics.min_clearance),
+                self._format_float(metrics.avg_clearance),
+                metrics.max_risk,
+                metrics.max_risk_point[0],
+                metrics.max_risk_point[1],
+                metrics.max_risk_point[2],
+                metrics.narrow_passage_count,
+                metrics.stair_edge_risk_count,
+                str(metrics.postprocess_improved).lower(),
+            )
+        )
+        self.global_debug_pub.publish(msg)
+
+    def _make_path_risk_marker_array(
+        self,
+        points: list[Point3],
+        stamp,
+        namespace: str,
+        color_by_clearance: bool,
+    ) -> MarkerArray:
+        marker = Marker()
+        marker.header.stamp = stamp
+        marker.header.frame_id = self.map_frame
+        marker.ns = namespace
+        marker.id = 0
+        marker.type = Marker.POINTS
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = max(0.08, self.marker_line_width * 1.6)
+        marker.scale.y = marker.scale.x
+
+        for point in points:
+            p = Point()
+            p.x, p.y, p.z = point
+            marker.points.append(p)
+            clearance = self.safety_map.query_obstacle_distance(point)
+            risk = self.safety_map.compute_clearance_cost(point)
+            marker.colors.append(
+                self._risk_color_from_clearance(clearance)
+                if color_by_clearance
+                else self._risk_color_from_cost(risk)
+            )
+
+        array = MarkerArray()
+        array.markers.append(marker)
+        return array
+
+    def _publish_global_clearance_map(self) -> None:
+        if not self.publish_global_clearance_map_debug or self.global_clearance_map_max_samples <= 0:
+            return
+        if not self.safety_map.loaded:
+            return
+
+        marker = Marker()
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.header.frame_id = self.map_frame
+        marker.ns = "global_clearance_map"
+        marker.id = 0
+        marker.type = Marker.POINTS
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.06
+        marker.scale.y = 0.06
+
+        for point, clearance in self.safety_map.sample_clearance_points(self.global_clearance_map_max_samples):
+            p = Point()
+            p.x, p.y, p.z = point
+            marker.points.append(p)
+            marker.colors.append(self._risk_color_from_clearance(clearance))
+
+        array = MarkerArray()
+        array.markers.append(marker)
+        self.global_clearance_marker_pub.publish(array)
+
+    def _risk_color_from_clearance(self, clearance: float) -> ColorRGBA:
+        if not math.isfinite(clearance):
+            return self._rgba(0.25, 0.25, 0.25, 0.35)
+        if clearance >= self.postprocess_cfg.preferred_clearance:
+            return self._rgba(0.0, 0.85, 0.20, 0.95)
+        if clearance >= 0.75 * self.postprocess_cfg.preferred_clearance:
+            return self._rgba(1.0, 0.85, 0.05, 0.95)
+        if clearance >= self.postprocess_cfg.hard_min_clearance:
+            return self._rgba(1.0, 0.45, 0.0, 0.95)
+        return self._rgba(1.0, 0.05, 0.02, 0.98)
+
+    def _risk_color_from_cost(self, risk: float) -> ColorRGBA:
+        if risk >= 1000.0:
+            return self._rgba(1.0, 0.02, 0.02, 0.98)
+        if risk >= 5.0:
+            return self._rgba(1.0, 0.25, 0.0, 0.95)
+        if risk >= 1.0:
+            return self._rgba(1.0, 0.85, 0.05, 0.95)
+        return self._rgba(0.0, 0.85, 0.20, 0.95)
+
+    @staticmethod
+    def _rgba(r: float, g: float, b: float, a: float) -> ColorRGBA:
+        color = ColorRGBA()
+        color.r = float(r)
+        color.g = float(g)
+        color.b = float(b)
+        color.a = float(a)
+        return color
+
+    @staticmethod
+    def _format_float(value: float) -> str:
+        if not math.isfinite(value):
+            return "inf"
+        return "%.3f" % value
 
     def _set_status(self, status: str) -> None:
         msg = String()

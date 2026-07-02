@@ -12,6 +12,51 @@ paths:
 global_planning:
   enabled: true
   algorithm: "pct"
+  clearance_cost_enabled: true
+  robot_radius: 0.35
+  leg_safety_margin: 0.20
+  preferred_clearance: 0.50
+  hard_min_clearance: 0.25
+  clearance_weight: 4.0
+  path_length_weight: 1.0
+  smoothness_weight: 3.0
+  centerline_weight: 1.0
+  stair_edge_weight: 1.5
+  unknown_as_occupied: true
+  adaptive_inflation_enabled: true
+  normal_inflation_radius: 0.32
+  narrow_passage_inflation_radius: 0.20
+  stair_area_inflation_radius: 0.45
+  narrow_passage_detect_enabled: true
+  narrow_passage_width_threshold: 0.9
+  narrow_passage_min_clearance: 0.20
+  stair_edge_detect_enabled: false
+  stair_edge_z_gradient_threshold: 0.45
+  stair_edge_clearance_boost: 1.0
+  height_aware_clearance_enabled: true
+  body_obstacle_min_relative_z: 0.20
+  body_obstacle_max_relative_z: 1.60
+  body_clearance_check_radius: 0.70
+  body_clearance_use_all_map_points: false
+  path_postprocess_enabled: true
+  global_search_clearance_enabled: true
+  global_search_preferred_clearance: 0.50
+  global_search_hard_min_clearance: 0.25
+  global_search_clearance_weight: 35.0
+  global_search_clearance_power: 2.0
+  global_search_clearance_max_extra_cost: 12.0
+  global_search_clearance_max_total_cost: 17.5
+  enable_path_resampling: true
+  path_resample_resolution: 0.3
+  optimized_path_collision_cost_threshold: 20.0
+  optimized_path_collision_check_resolution: 0.15
+  enable_clearance_optimization: true
+  clearance_optimization_iterations: 35
+  clearance_optimization_step: 0.04
+  enable_path_smoothing: true
+  smoothing_iterations: 18
+  max_smoothing_deviation: 0.8
+  keep_start_goal_fixed: false
   algorithms:
     pct:
       package: "pct_global_planner"
@@ -50,6 +95,18 @@ modules:
     package: "ego_local_planner"
     launch: "ego_local_planner.launch.py"
     algorithm: "EGO Planner"
+    use_global_path_risk: true
+    allow_deviation_from_global_path: true
+    max_deviation_from_global_path: 0.8
+    prefer_high_clearance_tracking: true
+    min_local_clearance: 0.35
+    preferred_local_clearance: 0.65
+    local_clearance_weight: 2.0
+    path_tracking_weight: 1.0
+    slow_down_near_obstacle: true
+    obstacle_slow_distance: 0.8
+    obstacle_stop_distance: 0.35
+    debug_visualization_enabled: true
   robot_api:
     control_package: "nav3d_control"
     bridge_package: "go2_twist_bridge"

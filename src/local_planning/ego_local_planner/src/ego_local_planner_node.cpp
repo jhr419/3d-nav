@@ -41,6 +41,7 @@
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/transform_listener.h>
 #include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 using namespace std::chrono_literals;
 
@@ -274,6 +275,17 @@ public:
     status_pub_ = create_publisher<std_msgs::msg::String>(
       status_topic_, rclcpp::QoS(1).transient_local().reliable());
     debug_pub_ = create_publisher<std_msgs::msg::String>(debug_topic_, rclcpp::QoS(10));
+    candidate_trajectories_pub_ =
+      create_publisher<visualization_msgs::msg::MarkerArray>(
+      candidate_trajectories_marker_topic_, rclcpp::QoS(1));
+    local_map_marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+      local_map_marker_topic_, rclcpp::QoS(1));
+    collision_points_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+      collision_points_marker_topic_, rclcpp::QoS(1));
+    footprint_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+      footprint_marker_topic_, rclcpp::QoS(1));
+    cmd_vel_marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+      cmd_vel_marker_topic_, rclcpp::QoS(1));
 
     replan_timer_ = create_wall_timer(
       periodFromFrequency(replan_frequency_).to_chrono<std::chrono::nanoseconds>(),
@@ -317,9 +329,15 @@ private:
     declare_parameter<std::string>(
       "ego_local_trajectory_marker_topic", "/ego_local_trajectory_marker");
     declare_parameter<std::string>("ego_local_map_vis_topic", "/ego_local_map_vis");
-    declare_parameter<std::string>("ego_target_marker_topic", "/ego_target_marker");
+    declare_parameter<std::string>("ego_target_marker_topic", "/ego_local_target_marker");
+    declare_parameter<std::string>(
+      "ego_candidate_trajectories_marker_topic", "/ego_candidate_trajectories_marker");
+    declare_parameter<std::string>("ego_local_map_marker_topic", "/ego_local_map_marker");
+    declare_parameter<std::string>("ego_collision_points_marker_topic", "/ego_collision_points_marker");
+    declare_parameter<std::string>("ego_footprint_marker_topic", "/ego_footprint_marker");
+    declare_parameter<std::string>("ego_cmd_vel_marker_topic", "/ego_cmd_vel_marker");
     declare_parameter<std::string>("status_topic", "/ego_local_planner/status");
-    declare_parameter<std::string>("debug_topic", "/ego_local_planner/debug");
+    declare_parameter<std::string>("debug_topic", "/ego_debug_text");
 
     declare_parameter<std::string>("robot_model", "ground_omni");
     declare_parameter<bool>("allow_z_motion", false);
@@ -367,6 +385,20 @@ private:
     declare_parameter<bool>("replan_on_dynamic_obstacle", true);
     declare_parameter<bool>("replan_when_path_blocked", true);
     declare_parameter<double>("path_block_check_distance", 2.0);
+
+    declare_parameter<bool>("use_global_path_risk", true);
+    declare_parameter<bool>("allow_deviation_from_global_path", true);
+    declare_parameter<double>("max_deviation_from_global_path", 0.8);
+    declare_parameter<bool>("prefer_high_clearance_tracking", true);
+    declare_parameter<double>("min_local_clearance", 0.35);
+    declare_parameter<double>("preferred_local_clearance", 0.65);
+    declare_parameter<double>("local_clearance_weight", 2.0);
+    declare_parameter<double>("path_tracking_weight", 1.0);
+    declare_parameter<bool>("slow_down_near_obstacle", true);
+    declare_parameter<double>("obstacle_slow_distance", 0.8);
+    declare_parameter<double>("obstacle_stop_distance", 0.35);
+    declare_parameter<bool>("debug_visualization_enabled", true);
+    declare_parameter<double>("footprint_height", 0.55);
   }
 
   void readParameters()
@@ -420,6 +452,12 @@ private:
     trajectory_marker_topic_ = get_parameter("ego_local_trajectory_marker_topic").as_string();
     map_vis_topic_ = get_parameter("ego_local_map_vis_topic").as_string();
     target_marker_topic_ = get_parameter("ego_target_marker_topic").as_string();
+    candidate_trajectories_marker_topic_ =
+      get_parameter("ego_candidate_trajectories_marker_topic").as_string();
+    local_map_marker_topic_ = get_parameter("ego_local_map_marker_topic").as_string();
+    collision_points_marker_topic_ = get_parameter("ego_collision_points_marker_topic").as_string();
+    footprint_marker_topic_ = get_parameter("ego_footprint_marker_topic").as_string();
+    cmd_vel_marker_topic_ = get_parameter("ego_cmd_vel_marker_topic").as_string();
     status_topic_ = get_parameter("status_topic").as_string();
     debug_topic_ = get_parameter("debug_topic").as_string();
 
@@ -470,6 +508,26 @@ private:
     replan_on_dynamic_obstacle_ = get_parameter("replan_on_dynamic_obstacle").as_bool();
     replan_when_path_blocked_ = get_parameter("replan_when_path_blocked").as_bool();
     path_block_check_distance_ = get_parameter("path_block_check_distance").as_double();
+
+    use_global_path_risk_ = get_parameter("use_global_path_risk").as_bool();
+    allow_deviation_from_global_path_ =
+      get_parameter("allow_deviation_from_global_path").as_bool();
+    max_deviation_from_global_path_ =
+      std::max(0.1, get_parameter("max_deviation_from_global_path").as_double());
+    prefer_high_clearance_tracking_ =
+      get_parameter("prefer_high_clearance_tracking").as_bool();
+    min_local_clearance_ = std::max(0.0, get_parameter("min_local_clearance").as_double());
+    preferred_local_clearance_ =
+      std::max(min_local_clearance_, get_parameter("preferred_local_clearance").as_double());
+    local_clearance_weight_ = get_parameter("local_clearance_weight").as_double();
+    path_tracking_weight_ = get_parameter("path_tracking_weight").as_double();
+    slow_down_near_obstacle_ = get_parameter("slow_down_near_obstacle").as_bool();
+    obstacle_slow_distance_ =
+      std::max(0.0, get_parameter("obstacle_slow_distance").as_double());
+    obstacle_stop_distance_ =
+      std::max(0.0, get_parameter("obstacle_stop_distance").as_double());
+    debug_visualization_enabled_ = get_parameter("debug_visualization_enabled").as_bool();
+    footprint_height_ = std::max(0.05, get_parameter("footprint_height").as_double());
   }
 
   void globalPathCallback(const nav_msgs::msg::Path::SharedPtr msg)
@@ -700,10 +758,33 @@ private:
       return;
     }
 
+    const double min_obstacle_distance = minObstacleDistance(current_pose.position);
+    if (slow_down_near_obstacle_ && std::isfinite(min_obstacle_distance) &&
+      min_obstacle_distance <= obstacle_stop_distance_)
+    {
+      trajectory_collision_ = true;
+      needs_replan_ = true;
+      publishZeroCommand();
+      setStatus("REPLAN");
+      return;
+    }
+
     cmd.linear.z = 0.0;
     cmd.angular.x = 0.0;
     cmd.angular.y = 0.0;
     cmd = applyCommandLimits(cmd);
+    if (slow_down_near_obstacle_ && std::isfinite(min_obstacle_distance) &&
+      min_obstacle_distance < obstacle_slow_distance_ &&
+      obstacle_slow_distance_ > obstacle_stop_distance_)
+    {
+      const double scale = clamp(
+        (min_obstacle_distance - obstacle_stop_distance_) /
+        (obstacle_slow_distance_ - obstacle_stop_distance_),
+        0.0, 1.0);
+      cmd.linear.x *= scale;
+      cmd.linear.y *= scale;
+      cmd.angular.z *= std::max(0.35, scale);
+    }
     cmd_pub_->publish(cmd);
     last_cmd_ = cmd;
     last_cmd_time_ = now();
@@ -753,15 +834,34 @@ private:
     ss << " cloud_fresh=" << (isCloudFresh() ? "true" : "false");
     ss << " local_map_points=" << raw_obstacle_points_.size();
     ss << " inflated_voxels=" << occupied_voxels_.size();
+    ss << " global_path_received=" << (has_path_ ? "true" : "false");
+    ss << " trajectory_valid=" << (!active_traj_.points.empty() && !trajectory_collision_ ? "true" : "false");
+    ss << " collision_detected=" << (trajectory_collision_ ? "true" : "false");
+    ss << " replan_triggered=" << (needs_replan_ ? "true" : "false");
+    if (has_pose) {
+      const double min_obstacle_distance = minObstacleDistance(pose.position);
+      ss << " min_obstacle_distance="
+        << (std::isfinite(min_obstacle_distance) ? min_obstacle_distance : -1.0);
+      ss << " tracking_error=" << distanceToGlobalPath(pose.position.head<2>());
+    }
     ss << " needs_replan=" << (needs_replan_ ? "true" : "false");
     ss << " trajectory_collision=" << (trajectory_collision_ ? "true" : "false");
     ss << " last_plan_failure=\"" << last_plan_failure_reason_ << "\"";
-    ss << " cmd_vel=(" << last_cmd_.linear.x << ", " << last_cmd_.linear.y
+    ss << " cmd_vel_nav=(" << last_cmd_.linear.x << ", " << last_cmd_.linear.y
       << ", " << last_cmd_.angular.z << ")";
+    ss << " state=" << status_;
 
     std_msgs::msg::String msg;
     msg.data = ss.str();
     debug_pub_->publish(msg);
+
+    if (debug_visualization_enabled_ && has_pose) {
+      publishFootprintMarker(pose);
+      publishCmdVelMarker(pose);
+      publishCollisionPointsMarker();
+      publishCandidateTrajectoriesMarker();
+      publishLocalMapMarker();
+    }
   }
 
   Eigen::Vector3d selectLocalTargetFromGlobalPath(
@@ -870,6 +970,7 @@ private:
     Trajectory & traj)
   {
     last_plan_failure_reason_.clear();
+    last_rejected_trajectory_points_.clear();
     std::vector<Eigen::Vector3d> path;
     if (isSegmentCollisionFree(start, target)) {
       path = {start, target};
@@ -891,15 +992,18 @@ private:
 
     if (path.size() < 2) {
       last_plan_failure_reason_ = "local trajectory has fewer than 2 points after resampling";
+      last_rejected_trajectory_points_ = path;
       return false;
     }
 
     Trajectory candidate;
     candidate.points = std::move(path);
+    last_candidate_trajectory_points_ = candidate.points;
     candidate.stamp = now();
     candidate.collision_free = isTrajectoryCollisionFree(candidate);
     if (!candidate.collision_free) {
       last_plan_failure_reason_ = "candidate trajectory became occupied during final collision check";
+      last_rejected_trajectory_points_ = candidate.points;
       return false;
     }
 
@@ -996,9 +1100,21 @@ private:
           continue;
         }
 
+        const Eigen::Vector2d next_xy = gridKeyToWorld(next);
+        const double deviation = distanceToGlobalPath(next_xy);
+        if (allow_deviation_from_global_path_ && deviation > max_deviation_from_global_path_ &&
+          next != goal_key)
+        {
+          continue;
+        }
+
         const double step_cost = std::hypot(static_cast<double>(step.x), static_cast<double>(step.y)) *
           voxel_resolution_;
-        const double new_g = current_record.g + step_cost;
+        const double tracking_cost = use_global_path_risk_ ?
+          path_tracking_weight_ * std::min(deviation, max_deviation_from_global_path_) : 0.0;
+        const double clearance_cost = prefer_high_clearance_tracking_ ?
+          local_clearance_weight_ * localClearancePenalty(next) : 0.0;
+        const double new_g = current_record.g + step_cost + tracking_cost + clearance_cost;
         auto & next_record = records[next];
         if (next_record.closed || new_g >= next_record.g) {
           continue;
@@ -1124,18 +1240,22 @@ private:
     return true;
   }
 
-  bool isTrajectoryCollisionFree(const Trajectory & traj) const
+  bool isTrajectoryCollisionFree(const Trajectory & traj)
   {
     if (traj.points.empty()) {
       return false;
     }
+    last_collision_points_.clear();
     for (const auto & point : traj.points) {
       if (!isPoseCollisionFree(point)) {
+        last_collision_points_.push_back(point);
         return false;
       }
     }
     for (std::size_t i = 0; i + 1 < traj.points.size(); ++i) {
       if (!isSegmentCollisionFree(traj.points[i], traj.points[i + 1])) {
+        last_collision_points_.push_back(traj.points[i]);
+        last_collision_points_.push_back(traj.points[i + 1]);
         return false;
       }
     }
@@ -1194,6 +1314,77 @@ private:
   bool isGridOccupied(const GridKey & key) const
   {
     return occupied_xy_.find(key) != occupied_xy_.end();
+  }
+
+  double distanceToGlobalPath(const Eigen::Vector2d & query) const
+  {
+    if (global_path_.empty()) {
+      return 0.0;
+    }
+    if (global_path_.size() == 1) {
+      return (global_path_.front().head<2>() - query).norm();
+    }
+
+    double best_distance = std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i + 1 < global_path_.size(); ++i) {
+      const Eigen::Vector2d a = global_path_[i].head<2>();
+      const Eigen::Vector2d b = global_path_[i + 1].head<2>();
+      const Eigen::Vector2d ab = b - a;
+      const double length_sq = ab.squaredNorm();
+      const double t = length_sq > 1.0e-8 ?
+        clamp((query - a).dot(ab) / length_sq, 0.0, 1.0) : 0.0;
+      best_distance = std::min(best_distance, (query - (a + t * ab)).norm());
+    }
+    return best_distance;
+  }
+
+  double distanceToNearestOccupiedGrid(const GridKey & key, double max_distance) const
+  {
+    if (occupied_xy_.empty()) {
+      return std::numeric_limits<double>::infinity();
+    }
+    const int max_cells = std::max(1, static_cast<int>(std::ceil(max_distance / voxel_resolution_)));
+    for (int radius = 0; radius <= max_cells; ++radius) {
+      for (int dx = -radius; dx <= radius; ++dx) {
+        for (int dy = -radius; dy <= radius; ++dy) {
+          if (std::max(std::abs(dx), std::abs(dy)) != radius) {
+            continue;
+          }
+          if (isGridOccupied({key.x + dx, key.y + dy})) {
+            return std::hypot(static_cast<double>(dx), static_cast<double>(dy)) *
+                   voxel_resolution_;
+          }
+        }
+      }
+    }
+    return std::numeric_limits<double>::infinity();
+  }
+
+  double localClearancePenalty(const GridKey & key) const
+  {
+    const double clearance = distanceToNearestOccupiedGrid(key, preferred_local_clearance_);
+    if (!std::isfinite(clearance) || clearance >= preferred_local_clearance_) {
+      return 0.0;
+    }
+    if (clearance <= min_local_clearance_) {
+      return 1000.0 + (min_local_clearance_ - clearance) * 100.0;
+    }
+    const double span = std::max(1.0e-3, preferred_local_clearance_ - min_local_clearance_);
+    const double ratio = (preferred_local_clearance_ - clearance) / span;
+    return ratio * ratio;
+  }
+
+  double minObstacleDistance(const Eigen::Vector3d & query) const
+  {
+    double best = std::numeric_limits<double>::infinity();
+    for (const auto & point : raw_obstacle_points_) {
+      const double dz = std::abs(point.z() - query.z());
+      if (dz > local_map_height_) {
+        continue;
+      }
+      best = std::min(best, (point.head<2>() - query.head<2>()).norm());
+    }
+    return best;
   }
 
   std::optional<GridKey> findNearestFreeGrid(const GridKey & preferred) const
@@ -1544,6 +1735,166 @@ private:
     map_vis_pub_->publish(msg);
   }
 
+  void publishLocalMapMarker()
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = map_frame_;
+    marker.ns = "ego_local_map";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::POINTS;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = std::max(0.04, voxel_resolution_ * 0.45);
+    marker.scale.y = marker.scale.x;
+    marker.color.r = 0.95F;
+    marker.color.g = 0.15F;
+    marker.color.b = 0.05F;
+    marker.color.a = 0.55F;
+    marker.lifetime = durationFromSeconds(0.6);
+
+    std::size_t count = 0;
+    const std::size_t max_points = 5000;
+    const std::size_t stride = std::max<std::size_t>(1, occupied_voxels_.size() / max_points);
+    for (const auto & key : occupied_voxels_) {
+      if ((count++ % stride) != 0) {
+        continue;
+      }
+      marker.points.push_back(toPointMsg(voxelKeyToWorld(key)));
+    }
+    local_map_marker_pub_->publish(marker);
+  }
+
+  void publishCandidateTrajectoriesMarker()
+  {
+    visualization_msgs::msg::MarkerArray array;
+    const auto stamp = now();
+    addTrajectoryMarker(array, active_traj_.points, stamp, "ego_candidate_trajectories", 0, 0.1F, 0.8F, 1.0F, 0.95F);
+    addTrajectoryMarker(array, last_candidate_trajectory_points_, stamp, "ego_candidate_trajectories", 1, 0.1F, 1.0F, 0.25F, 0.80F);
+    addTrajectoryMarker(array, last_rejected_trajectory_points_, stamp, "ego_candidate_trajectories", 2, 1.0F, 0.05F, 0.05F, 0.90F);
+    candidate_trajectories_pub_->publish(array);
+  }
+
+  void addTrajectoryMarker(
+    visualization_msgs::msg::MarkerArray & array,
+    const std::vector<Eigen::Vector3d> & points,
+    const rclcpp::Time & stamp,
+    const std::string & ns,
+    int id,
+    float r,
+    float g,
+    float b,
+    float a) const
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = stamp;
+    marker.header.frame_id = map_frame_;
+    marker.ns = ns;
+    marker.id = id;
+    marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    marker.action = points.empty() ? visualization_msgs::msg::Marker::DELETE :
+      visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = id == 0 ? 0.07 : 0.045;
+    marker.color.r = r;
+    marker.color.g = g;
+    marker.color.b = b;
+    marker.color.a = a;
+    marker.lifetime = durationFromSeconds(0.6);
+    for (const auto & point : points) {
+      marker.points.push_back(toPointMsg(point));
+    }
+    array.markers.push_back(marker);
+  }
+
+  void publishCollisionPointsMarker()
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = map_frame_;
+    marker.ns = "ego_collision_points";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::POINTS;
+    marker.action = last_collision_points_.empty() ? visualization_msgs::msg::Marker::DELETE :
+      visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.18;
+    marker.scale.y = 0.18;
+    marker.color.r = 1.0F;
+    marker.color.g = 0.0F;
+    marker.color.b = 0.0F;
+    marker.color.a = 1.0F;
+    marker.lifetime = durationFromSeconds(0.8);
+    for (const auto & point : last_collision_points_) {
+      marker.points.push_back(toPointMsg(point));
+    }
+    collision_points_pub_->publish(marker);
+  }
+
+  void publishFootprintMarker(const Pose3D & pose)
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = map_frame_;
+    marker.ns = "ego_footprint";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::CYLINDER;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.position = toPointMsg(pose.position);
+    marker.pose.position.z += footprint_height_ * 0.5;
+    tf2::Quaternion q;
+    q.setRPY(0.0, 0.0, pose.yaw);
+    marker.pose.orientation.x = q.x();
+    marker.pose.orientation.y = q.y();
+    marker.pose.orientation.z = q.z();
+    marker.pose.orientation.w = q.w();
+    const double radius = std::max(robot_clear_radius_, min_local_clearance_);
+    marker.scale.x = 2.0 * radius;
+    marker.scale.y = 2.0 * radius;
+    marker.scale.z = footprint_height_;
+    marker.color.r = 0.1F;
+    marker.color.g = 0.7F;
+    marker.color.b = 1.0F;
+    marker.color.a = 0.22F;
+    marker.lifetime = durationFromSeconds(0.6);
+    footprint_pub_->publish(marker);
+  }
+
+  void publishCmdVelMarker(const Pose3D & pose)
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = map_frame_;
+    marker.ns = "ego_cmd_vel";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::ARROW;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.08;
+    marker.scale.y = 0.16;
+    marker.scale.z = 0.18;
+    marker.color.r = 0.95F;
+    marker.color.g = 0.55F;
+    marker.color.b = 0.05F;
+    marker.color.a = 0.95F;
+    marker.lifetime = durationFromSeconds(0.6);
+
+    const double cos_yaw = std::cos(pose.yaw);
+    const double sin_yaw = std::sin(pose.yaw);
+    const Eigen::Vector2d velocity_map(
+      cos_yaw * last_cmd_.linear.x - sin_yaw * last_cmd_.linear.y,
+      sin_yaw * last_cmd_.linear.x + cos_yaw * last_cmd_.linear.y);
+    const double speed = velocity_map.norm();
+    const Eigen::Vector3d start = pose.position + Eigen::Vector3d(0.0, 0.0, 0.20);
+    const Eigen::Vector3d end = start + Eigen::Vector3d(
+      velocity_map.x(),
+      velocity_map.y(),
+      0.0) * (speed > 1.0e-4 ? std::max(0.5, 1.5 / std::max(0.1, speed)) : 0.0);
+    marker.points.push_back(toPointMsg(start));
+    marker.points.push_back(toPointMsg(end));
+    cmd_vel_marker_pub_->publish(marker);
+  }
+
   void setStatus(const std::string & status)
   {
     if (status == status_) {
@@ -1568,6 +1919,11 @@ private:
   std::string trajectory_marker_topic_;
   std::string map_vis_topic_;
   std::string target_marker_topic_;
+  std::string candidate_trajectories_marker_topic_;
+  std::string local_map_marker_topic_;
+  std::string collision_points_marker_topic_;
+  std::string footprint_marker_topic_;
+  std::string cmd_vel_marker_topic_;
   std::string status_topic_;
   std::string debug_topic_;
   std::string robot_model_;
@@ -1618,6 +1974,19 @@ private:
   bool replan_on_dynamic_obstacle_{true};
   bool replan_when_path_blocked_{true};
   double path_block_check_distance_{2.0};
+  bool use_global_path_risk_{true};
+  bool allow_deviation_from_global_path_{true};
+  double max_deviation_from_global_path_{0.8};
+  bool prefer_high_clearance_tracking_{true};
+  double min_local_clearance_{0.35};
+  double preferred_local_clearance_{0.65};
+  double local_clearance_weight_{2.0};
+  double path_tracking_weight_{1.0};
+  bool slow_down_near_obstacle_{true};
+  double obstacle_slow_distance_{0.8};
+  double obstacle_stop_distance_{0.35};
+  bool debug_visualization_enabled_{true};
+  double footprint_height_{0.55};
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
@@ -1632,6 +2001,11 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr target_marker_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr debug_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr candidate_trajectories_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr local_map_marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr collision_points_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr footprint_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr cmd_vel_marker_pub_;
 
   rclcpp::TimerBase::SharedPtr replan_timer_;
   rclcpp::TimerBase::SharedPtr control_timer_;
@@ -1647,6 +2021,9 @@ private:
   rclcpp::Time last_cloud_time_{0, 0, RCL_ROS_TIME};
 
   std::vector<Eigen::Vector3d> raw_obstacle_points_;
+  std::vector<Eigen::Vector3d> last_collision_points_;
+  std::vector<Eigen::Vector3d> last_candidate_trajectory_points_;
+  std::vector<Eigen::Vector3d> last_rejected_trajectory_points_;
   std::unordered_set<VoxelKey, VoxelKeyHash> occupied_voxels_;
   std::unordered_set<GridKey, GridKeyHash> occupied_xy_;
   Trajectory active_traj_;

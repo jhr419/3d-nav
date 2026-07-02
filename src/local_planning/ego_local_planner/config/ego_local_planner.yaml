@@ -18,9 +18,14 @@ ego_local_planner_node:
     ego_local_trajectory_topic: "/ego_local_trajectory"
     ego_local_trajectory_marker_topic: "/ego_local_trajectory_marker"
     ego_local_map_vis_topic: "/ego_local_map_vis"
-    ego_target_marker_topic: "/ego_target_marker"
+    ego_target_marker_topic: "/ego_local_target_marker"
+    ego_candidate_trajectories_marker_topic: "/ego_candidate_trajectories_marker"
+    ego_local_map_marker_topic: "/ego_local_map_marker"
+    ego_collision_points_marker_topic: "/ego_collision_points_marker"
+    ego_footprint_marker_topic: "/ego_footprint_marker"
+    ego_cmd_vel_marker_topic: "/ego_cmd_vel_marker"
     status_topic: "/ego_local_planner/status"
-    debug_topic: "/ego_local_planner/debug"
+    debug_topic: "/ego_debug_text"
 
     robot_model: "ground_omni"
     allow_z_motion: false
@@ -68,3 +73,17 @@ ego_local_planner_node:
     replan_on_dynamic_obstacle: true
     replan_when_path_blocked: true
     path_block_check_distance: 3.0
+
+    use_global_path_risk: true
+    allow_deviation_from_global_path: true
+    max_deviation_from_global_path: 0.8
+    prefer_high_clearance_tracking: true
+    min_local_clearance: 0.35
+    preferred_local_clearance: 0.65
+    local_clearance_weight: 2.0
+    path_tracking_weight: 1.0
+    slow_down_near_obstacle: true
+    obstacle_slow_distance: 0.8
+    obstacle_stop_distance: 0.35
+    debug_visualization_enabled: true
+    footprint_height: 0.55

@@ -25,7 +25,7 @@ def generate_launch_description():
         DeclareLaunchArgument("global_planner_algorithm", default_value=""),
         DeclareLaunchArgument(
             "rviz_config",
-            default_value=package_file("pct_global_planner", "rviz", "pct_global_planner.rviz"),
+            default_value=package_file("nav3d_bringup", "rviz", "nav3d_debug.rviz"),
         ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(package_file("nav3d_bringup", "launch", "localization_impl.launch.py")),

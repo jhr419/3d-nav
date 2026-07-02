@@ -2,11 +2,14 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
@@ -16,6 +19,7 @@
 #include "octomap_msgs/conversions.h"
 #include "octomap_msgs/msg/octomap.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/color_rgba.hpp"
 #include "std_msgs/msg/header.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "tf2/time.h"
@@ -27,6 +31,7 @@
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 using namespace std::chrono_literals;
 
@@ -131,6 +136,14 @@ public:
     }
     marker_pub_ =
       create_publisher<visualization_msgs::msg::Marker>(publish_marker_topic_, latchedQos());
+    global_debug_pub_ =
+      create_publisher<std_msgs::msg::String>(global_planner_debug_topic_, latchedQos());
+    clearance_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+      planned_path_clearance_marker_topic_, latchedQos());
+    risk_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+      planned_path_risk_marker_topic_, latchedQos());
+    global_clearance_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+      global_clearance_map_marker_topic_, latchedQos());
     octomap_pub_ =
       create_publisher<octomap_msgs::msg::Octomap>(octomap_topic_, latchedQos());
 
@@ -188,6 +201,17 @@ public:
   }
 
 private:
+  struct PathMetrics
+  {
+    double path_length{0.0};
+    double min_clearance{std::numeric_limits<double>::infinity()};
+    double avg_clearance{std::numeric_limits<double>::infinity()};
+    double max_risk{0.0};
+    geometry_msgs::msg::Point max_risk_point;
+    int narrow_passage_count{0};
+    int stair_edge_risk_count{0};
+  };
+
   void declareParameters()
   {
     declare_parameter<std::string>("map_frame", "map");
@@ -213,6 +237,16 @@ private:
     declare_parameter<std::string>("publish_alias_path_topic", "/path");
     declare_parameter<std::string>("publish_marker_topic", "/planned_path_marker");
     declare_parameter<std::string>("status_topic", "/jie_3d_global_planner/status");
+    declare_parameter<std::string>("global_planner_debug_topic", "/global_planner/debug");
+    declare_parameter<std::string>(
+      "planned_path_clearance_marker_topic", "/planned_path_clearance_marker");
+    declare_parameter<std::string>("planned_path_risk_marker_topic", "/planned_path_risk_marker");
+    declare_parameter<std::string>("global_clearance_map_marker_topic", "/global_clearance_map_marker");
+    declare_parameter<bool>("clearance_cost_enabled", true);
+    declare_parameter<double>("preferred_clearance", 0.75);
+    declare_parameter<double>("hard_min_clearance", 0.35);
+    declare_parameter<double>("normal_inflation_radius", 0.45);
+    declare_parameter<double>("clearance_weight", 2.0);
     declare_parameter<double>("tf_lookup_timeout", 0.25);
     declare_parameter<double>("planning_timeout", 8.0);
     declare_parameter<double>("marker_line_width", 0.08);
@@ -250,6 +284,17 @@ private:
     publish_alias_path_topic_ = get_parameter("publish_alias_path_topic").as_string();
     publish_marker_topic_ = get_parameter("publish_marker_topic").as_string();
     status_topic_ = get_parameter("status_topic").as_string();
+    global_planner_debug_topic_ = get_parameter("global_planner_debug_topic").as_string();
+    planned_path_clearance_marker_topic_ =
+      get_parameter("planned_path_clearance_marker_topic").as_string();
+    planned_path_risk_marker_topic_ = get_parameter("planned_path_risk_marker_topic").as_string();
+    global_clearance_map_marker_topic_ =
+      get_parameter("global_clearance_map_marker_topic").as_string();
+    clearance_cost_enabled_ = get_parameter("clearance_cost_enabled").as_bool();
+    preferred_clearance_ = get_parameter("preferred_clearance").as_double();
+    hard_min_clearance_ = get_parameter("hard_min_clearance").as_double();
+    normal_inflation_radius_ = get_parameter("normal_inflation_radius").as_double();
+    clearance_weight_ = get_parameter("clearance_weight").as_double();
     tf_lookup_timeout_ = get_parameter("tf_lookup_timeout").as_double();
     planning_timeout_ = get_parameter("planning_timeout").as_double();
     marker_line_width_ = get_parameter("marker_line_width").as_double();
@@ -277,6 +322,7 @@ private:
     }
     tree->updateInnerOccupancy();
     file_octree_ = tree;
+    rebuildOccupiedLeafCache();
     map_ready_ = true;
     setStatus("WAITING_FOR_GOAL");
     publishFileOctomap();
@@ -317,6 +363,28 @@ private:
     msg.header.stamp = now();
     msg.header.frame_id = map_frame_;
     octomap_pub_->publish(msg);
+  }
+
+  void rebuildOccupiedLeafCache()
+  {
+    occupied_leaf_centers_.clear();
+    if (!file_octree_) {
+      return;
+    }
+    occupied_leaf_centers_.reserve(file_octree_->size());
+    for (auto it = file_octree_->begin_leafs(); it != file_octree_->end_leafs(); ++it) {
+      if (!file_octree_->isNodeOccupied(*it)) {
+        continue;
+      }
+      geometry_msgs::msg::Point point;
+      point.x = it.getX();
+      point.y = it.getY();
+      point.z = it.getZ();
+      occupied_leaf_centers_.push_back(point);
+    }
+    RCLCPP_INFO(
+      get_logger(), "Cached %zu occupied OctoMap leaves for clearance debug.",
+      occupied_leaf_centers_.size());
   }
 
   void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg)
@@ -550,6 +618,8 @@ private:
 
     publishPath(path);
     publishMarker(path);
+    publishRiskDebug(path);
+    publishGlobalClearanceMapMarker(path.header);
     planning_ = false;
     setStatus("SUCCESS");
     RCLCPP_INFO(get_logger(), "Published jie_octomap global path: poses=%zu", path.poses.size());
@@ -618,6 +688,199 @@ private:
     marker_pub_->publish(marker);
   }
 
+  void publishRiskDebug(const nav_msgs::msg::Path & path)
+  {
+    clearance_marker_pub_->publish(makePathRiskMarkerArray(path, "jie_path_clearance", true));
+    risk_marker_pub_->publish(makePathRiskMarkerArray(path, "jie_path_risk", false));
+
+    const PathMetrics metrics = computePathMetrics(path);
+    std_msgs::msg::String msg;
+    msg.data =
+      "path_length=" + formatDouble(metrics.path_length) +
+      " min_clearance=" + formatDouble(metrics.min_clearance) +
+      " avg_clearance=" + formatDouble(metrics.avg_clearance) +
+      " max_risk=" + formatDouble(metrics.max_risk) +
+      " max_risk_point=(" + formatDouble(metrics.max_risk_point.x) + ", " +
+      formatDouble(metrics.max_risk_point.y) + ", " + formatDouble(metrics.max_risk_point.z) + ")" +
+      " narrow_passage_count=" + std::to_string(metrics.narrow_passage_count) +
+      " stair_edge_risk_count=" + std::to_string(metrics.stair_edge_risk_count) +
+      " postprocess_improved=false";
+    global_debug_pub_->publish(msg);
+  }
+
+  visualization_msgs::msg::MarkerArray makePathRiskMarkerArray(
+    const nav_msgs::msg::Path & path,
+    const std::string & ns,
+    bool color_by_clearance) const
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header = path.header;
+    marker.ns = ns;
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::POINTS;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = std::max(0.08, marker_line_width_ * 1.6);
+    marker.scale.y = marker.scale.x;
+
+    for (const auto & pose : path.poses) {
+      const auto & point = pose.pose.position;
+      marker.points.push_back(point);
+      const double clearance = queryObstacleDistance(point);
+      const double risk = computeClearanceCost(clearance);
+      marker.colors.push_back(color_by_clearance ? riskColorFromClearance(clearance) : riskColorFromCost(risk));
+    }
+
+    visualization_msgs::msg::MarkerArray array;
+    array.markers.push_back(marker);
+    return array;
+  }
+
+  void publishGlobalClearanceMapMarker(const std_msgs::msg::Header & header)
+  {
+    if (occupied_leaf_centers_.empty()) {
+      return;
+    }
+    visualization_msgs::msg::Marker marker;
+    marker.header = header;
+    marker.ns = "jie_global_clearance_map";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::POINTS;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.06;
+    marker.scale.y = 0.06;
+
+    const std::size_t stride = std::max<std::size_t>(1, occupied_leaf_centers_.size() / 2500);
+    for (std::size_t i = 0; i < occupied_leaf_centers_.size(); i += stride) {
+      marker.points.push_back(occupied_leaf_centers_[i]);
+      marker.colors.push_back(riskColorFromClearance(0.0));
+    }
+
+    visualization_msgs::msg::MarkerArray array;
+    array.markers.push_back(marker);
+    global_clearance_marker_pub_->publish(array);
+  }
+
+  PathMetrics computePathMetrics(const nav_msgs::msg::Path & path) const
+  {
+    PathMetrics metrics;
+    if (path.poses.empty()) {
+      return metrics;
+    }
+
+    double clearance_sum = 0.0;
+    int clearance_count = 0;
+    for (std::size_t i = 0; i < path.poses.size(); ++i) {
+      const auto & point = path.poses[i].pose.position;
+      const double clearance = queryObstacleDistance(point);
+      const double risk = computeClearanceCost(clearance);
+      if (std::isfinite(clearance)) {
+        metrics.min_clearance = std::min(metrics.min_clearance, clearance);
+        clearance_sum += clearance;
+        ++clearance_count;
+      }
+      if (risk > metrics.max_risk) {
+        metrics.max_risk = risk;
+        metrics.max_risk_point = point;
+      }
+      if (clearance < preferred_clearance_ && clearance >= hard_min_clearance_) {
+        ++metrics.narrow_passage_count;
+      }
+      if (i + 1 < path.poses.size()) {
+        const auto & next = path.poses[i + 1].pose.position;
+        metrics.path_length += std::sqrt(
+          std::pow(next.x - point.x, 2.0) +
+          std::pow(next.y - point.y, 2.0) +
+          std::pow(next.z - point.z, 2.0));
+      }
+    }
+    if (clearance_count > 0) {
+      metrics.avg_clearance = clearance_sum / static_cast<double>(clearance_count);
+    }
+    return metrics;
+  }
+
+  double queryObstacleDistance(const geometry_msgs::msg::Point & point) const
+  {
+    if (!clearance_cost_enabled_ || occupied_leaf_centers_.empty()) {
+      return std::numeric_limits<double>::infinity();
+    }
+    double best = std::numeric_limits<double>::infinity();
+    for (const auto & obstacle : occupied_leaf_centers_) {
+      best = std::min(best, std::hypot(obstacle.x - point.x, obstacle.y - point.y));
+    }
+    return best;
+  }
+
+  double computeClearanceCost(double clearance) const
+  {
+    if (!std::isfinite(clearance) || !clearance_cost_enabled_) {
+      return 0.0;
+    }
+    const double required = std::max(hard_min_clearance_, normal_inflation_radius_);
+    if (clearance < required) {
+      return 1.0e6 + (required - clearance) * 1.0e5;
+    }
+    if (clearance >= preferred_clearance_) {
+      return 0.0;
+    }
+    const double span = std::max(1.0e-3, preferred_clearance_ - required);
+    const double ratio = (preferred_clearance_ - clearance) / span;
+    return clearance_weight_ * ratio * ratio;
+  }
+
+  std_msgs::msg::ColorRGBA riskColorFromClearance(double clearance) const
+  {
+    if (!std::isfinite(clearance)) {
+      return rgba(0.25F, 0.25F, 0.25F, 0.35F);
+    }
+    if (clearance >= preferred_clearance_) {
+      return rgba(0.0F, 0.85F, 0.2F, 0.95F);
+    }
+    if (clearance >= 0.75 * preferred_clearance_) {
+      return rgba(1.0F, 0.85F, 0.05F, 0.95F);
+    }
+    if (clearance >= hard_min_clearance_) {
+      return rgba(1.0F, 0.45F, 0.0F, 0.95F);
+    }
+    return rgba(1.0F, 0.05F, 0.02F, 0.98F);
+  }
+
+  std_msgs::msg::ColorRGBA riskColorFromCost(double risk) const
+  {
+    if (risk >= 1000.0) {
+      return rgba(1.0F, 0.02F, 0.02F, 0.98F);
+    }
+    if (risk >= 5.0) {
+      return rgba(1.0F, 0.25F, 0.0F, 0.95F);
+    }
+    if (risk >= 1.0) {
+      return rgba(1.0F, 0.85F, 0.05F, 0.95F);
+    }
+    return rgba(0.0F, 0.85F, 0.20F, 0.95F);
+  }
+
+  static std_msgs::msg::ColorRGBA rgba(float r, float g, float b, float a)
+  {
+    std_msgs::msg::ColorRGBA color;
+    color.r = r;
+    color.g = g;
+    color.b = b;
+    color.a = a;
+    return color;
+  }
+
+  static std::string formatDouble(double value)
+  {
+    if (!std::isfinite(value)) {
+      return "inf";
+    }
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), "%.3f", value);
+    return std::string(buffer);
+  }
+
   void publishDeleteMarker(const std_msgs::msg::Header & header)
   {
     visualization_msgs::msg::Marker marker;
@@ -682,6 +945,10 @@ private:
   std::string publish_alias_path_topic_;
   std::string publish_marker_topic_;
   std::string status_topic_;
+  std::string global_planner_debug_topic_;
+  std::string planned_path_clearance_marker_topic_;
+  std::string planned_path_risk_marker_topic_;
+  std::string global_clearance_map_marker_topic_;
   std::string status_{"IDLE"};
   double resolution_{0.2};
   bool publish_octomap_from_file_{true};
@@ -689,6 +956,11 @@ private:
   double tf_lookup_timeout_{0.25};
   double planning_timeout_{8.0};
   double marker_line_width_{0.08};
+  bool clearance_cost_enabled_{true};
+  double preferred_clearance_{0.75};
+  double hard_min_clearance_{0.35};
+  double normal_inflation_radius_{0.45};
+  double clearance_weight_{2.0};
   double default_goal_z_{0.0};
   bool start_z_override_enabled_{false};
   double start_z_override_{0.0};
@@ -699,6 +971,7 @@ private:
 
   std::optional<geometry_msgs::msg::PointStamped> manual_start_;
   std::optional<geometry_msgs::msg::PoseStamped> pending_goal_pose_;
+  std::vector<geometry_msgs::msg::Point> occupied_leaf_centers_;
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr start_pub_;
@@ -707,6 +980,10 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr alias_path_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr global_debug_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr clearance_marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr risk_marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr global_clearance_marker_pub_;
   rclcpp::Publisher<octomap_msgs::msg::Octomap>::SharedPtr octomap_pub_;
   rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr octomap_sub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr raw_path_sub_;
