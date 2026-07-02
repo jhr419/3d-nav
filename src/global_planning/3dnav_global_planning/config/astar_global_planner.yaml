@@ -1,0 +1,99 @@
+astar_global_planner_node:
+  ros__parameters:
+    map_frame: "map"
+    odom_frame: "odom"
+    base_frame: "base_link"
+
+    start_source: "tf"
+    start_pose_topic: "/astar_global_planner/start_pose"
+    odom_topic: "/odom"
+    tf_lookup_timeout: 0.25
+    start_z_override_enabled: false
+    start_z_override: 0.0
+
+    goal_pose_topic: "/goal_pose_3d"
+    goal_point_topic: "/goal_point_3d"
+    rviz_2d_goal_topic: "/goal_pose"
+    default_goal_z: 0.0
+
+    map_source: "octomap"
+    octomap_file: "maps/map_preprocessed.bt"
+    pcd_file: "maps/map_preprocessed.pcd"
+    tomogram_topic: "/tomogram"
+
+    resolution: 0.20
+    planning_mode: "2.5d"
+    unknown_as_occupied: true
+    require_traversable_support: true
+    enforce_obstacle_clearance: true
+    hard_collision_clearance: 0.05
+    hard_collision_min_column_points: 2
+    hard_collision_min_vertical_span: 0.20
+    tomogram_traversable_cost_threshold: 50.0
+    wall_clearance_cost_enabled: true
+    wall_preferred_clearance: 0.60
+    wall_clearance_weight: 10.0
+    wall_clearance_power: 2.0
+    tomogram_cost_enabled: true
+    tomogram_cost_normalizer: 20.0
+    tomogram_cost_weight: 8.0
+    tomogram_cost_power: 1.5
+    tomogram_z_aware_support: true
+    tomogram_filter_by_z: true
+    tomogram_support_z_tolerance: 0.50
+    traversable_support_radius: 0.25
+    traversable_neighbor_radius: 0.30
+    traversable_min_neighbors: 3
+
+    robot_radius: 0.35
+    safety_margin: 0.0
+    inflation_radius: 0.25
+
+    robot_height_min: 0.05
+    robot_height_max: 0.70
+    obstacle_min_relative_z: 0.20
+    obstacle_max_relative_z: 1.40
+    terrain_following_enabled: false
+    default_path_z: 0.0
+
+    heuristic_weight: 1.0
+    max_iterations: 500000
+    search_timeout_sec: 5.0
+    neighbor_mode: 26
+    allow_diagonal: true
+    search_bounds_padding: 8.0
+    search_bounds_use_full_map: false
+    pcd_voxel_min_points: 1
+    map_distance_max_points: 250000
+
+    clearance_cost_enabled: true
+    hard_min_clearance: 0.25
+    preferred_clearance: 0.75
+    clearance_weight: 2.0
+    path_length_weight: 1.0
+    smoothness_weight: 1.0
+
+    postprocess_enabled: true
+    enable_path_resampling: true
+    path_resample_resolution: 0.2
+    enable_z_smoothing: true
+    z_smoothing_iterations: 30
+    z_smoothing_alpha: 0.45
+    z_max_step: 0.12
+    z_max_slope: 0.80
+    enable_path_smoothing: true
+    smoothing_iterations: 20
+    remove_duplicate_points: true
+    validate_after_smoothing: true
+
+    publish_path_topic: "/planned_path"
+    publish_alias_path_topic: "/path"
+    publish_marker_topic: "/planned_path_marker"
+    status_topic: "/astar_global_planner/status"
+    debug_topic: "/astar_global_planner/debug"
+    expanded_nodes_marker_topic: "/astar_expanded_nodes_marker"
+    closed_set_marker_topic: "/astar_closed_set_marker"
+    clearance_marker_topic: "/astar_clearance_marker"
+    publish_debug_markers: true
+    max_debug_marker_points: 20000
+    marker_line_width: 0.08

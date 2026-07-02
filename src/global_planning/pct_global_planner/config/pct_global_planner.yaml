@@ -110,7 +110,7 @@ pct_global_planner_node:
     marker_line_width: 0.08
     debug_output_enabled: false
     debug_output_dir: "debug"
-    debug_render_images: false
+    debug_render_images: true
 
     publish_current_start: true
     current_start_pose_topic: "/pct_global_planner/current_start_pose"

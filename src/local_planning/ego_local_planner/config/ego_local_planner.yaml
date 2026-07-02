@@ -32,7 +32,7 @@ ego_local_planner_node:
 
     cloud_in_sensor_frame: true
     local_map_radius: 5.0
-    local_map_height: 1.2
+    local_map_height: 1.5
     voxel_resolution: 0.15
     inflation_radius: 0.25
     robot_clear_radius: 0.30
@@ -40,15 +40,22 @@ ego_local_planner_node:
 
     remove_ground_points: true
     ground_relative_to_base: true
-    ground_z_threshold: 0.0
+    ground_z_threshold: 0.18
+    ground_filter_use_path_z: true
     self_filter_radius: 0.45
     dynamic_obstacle_timeout: 0.5
 
-    local_target_lookahead: 3.0
-    min_local_target_lookahead: 0.5
+    local_target_lookahead: 2.0
+    min_local_target_lookahead: 0.6
     goal_reached_tolerance: 0.35
+    goal_reached_z_tolerance: 0.45
     z_following_enabled: true
     max_allowed_z_jump: 0.35
+    z_aware_path_tracking: true
+    path_nearest_z_weight: 1.0
+    reference_z_weight: 1.0
+    limit_local_target_by_z: true
+    local_target_max_z_delta: 0.35
 
     max_vel_x: 0.2
     max_vel_y: 0.1
@@ -58,7 +65,7 @@ ego_local_planner_node:
     max_yaw_acc: 1.5
 
     traj_tracking_lookahead_time: 0.2
-    traj_tracking_lookahead_distance: 1.0
+    traj_tracking_lookahead_distance: 0.6
     kp_x: 0.8
     kp_y: 0.8
     kp_yaw: 1.2

@@ -103,6 +103,36 @@ Visualization Manager:
         Value: /global_clearance_map_marker
       Value: true
     - Class: rviz_default_plugins/Marker
+      Enabled: false
+      Name: AStar Expanded Nodes
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /astar_expanded_nodes_marker
+      Value: false
+    - Class: rviz_default_plugins/Marker
+      Enabled: false
+      Name: AStar Closed Set
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /astar_closed_set_marker
+      Value: false
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: AStar Clearance
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /astar_clearance_marker
+      Value: true
+    - Class: rviz_default_plugins/Marker
       Enabled: true
       Name: EGO Local Trajectory
       Topic:

@@ -353,14 +353,21 @@ private:
     declare_parameter<bool>("remove_ground_points", true);
     declare_parameter<bool>("ground_relative_to_base", true);
     declare_parameter<double>("ground_z_threshold", 0.08);
+    declare_parameter<bool>("ground_filter_use_path_z", true);
     declare_parameter<double>("self_filter_radius", 0.45);
     declare_parameter<double>("dynamic_obstacle_timeout", 0.5);
 
     declare_parameter<double>("local_target_lookahead", 2.0);
     declare_parameter<double>("min_local_target_lookahead", 0.8);
     declare_parameter<double>("goal_reached_tolerance", 0.35);
+    declare_parameter<double>("goal_reached_z_tolerance", 0.45);
     declare_parameter<bool>("z_following_enabled", true);
     declare_parameter<double>("max_allowed_z_jump", 0.35);
+    declare_parameter<bool>("z_aware_path_tracking", true);
+    declare_parameter<double>("path_nearest_z_weight", 1.0);
+    declare_parameter<double>("reference_z_weight", 1.0);
+    declare_parameter<bool>("limit_local_target_by_z", true);
+    declare_parameter<double>("local_target_max_z_delta", 0.35);
 
     declare_parameter<double>("max_vel_x", 0.6);
     declare_parameter<double>("max_vel_y", 0.4);
@@ -475,14 +482,25 @@ private:
     remove_ground_points_ = get_parameter("remove_ground_points").as_bool();
     ground_relative_to_base_ = get_parameter("ground_relative_to_base").as_bool();
     ground_z_threshold_ = get_parameter("ground_z_threshold").as_double();
+    ground_filter_use_path_z_ = get_parameter("ground_filter_use_path_z").as_bool();
     self_filter_radius_ = get_parameter("self_filter_radius").as_double();
     dynamic_obstacle_timeout_ = get_parameter("dynamic_obstacle_timeout").as_double();
 
     local_target_lookahead_ = get_parameter("local_target_lookahead").as_double();
     min_local_target_lookahead_ = get_parameter("min_local_target_lookahead").as_double();
     goal_reached_tolerance_ = get_parameter("goal_reached_tolerance").as_double();
+    goal_reached_z_tolerance_ =
+      std::max(0.0, get_parameter("goal_reached_z_tolerance").as_double());
     z_following_enabled_ = get_parameter("z_following_enabled").as_bool();
     max_allowed_z_jump_ = get_parameter("max_allowed_z_jump").as_double();
+    z_aware_path_tracking_ = get_parameter("z_aware_path_tracking").as_bool();
+    path_nearest_z_weight_ =
+      std::max(0.0, get_parameter("path_nearest_z_weight").as_double());
+    reference_z_weight_ =
+      std::max(0.0, get_parameter("reference_z_weight").as_double());
+    limit_local_target_by_z_ = get_parameter("limit_local_target_by_z").as_bool();
+    local_target_max_z_delta_ =
+      std::max(0.0, get_parameter("local_target_max_z_delta").as_double());
 
     max_vel_x_ = get_parameter("max_vel_x").as_double();
     max_vel_y_ = get_parameter("max_vel_y").as_double();
@@ -634,7 +652,10 @@ private:
         continue;
       }
       if (remove_ground_points_) {
-        const double ground_reference = ground_relative_to_base_ ? base_pose.position.z() : 0.0;
+        double ground_reference = ground_relative_to_base_ ? base_pose.position.z() : 0.0;
+        if (ground_filter_use_path_z_ && z_following_enabled_ && has_path_) {
+          ground_reference = referenceZ(point.x(), point.y(), ground_reference);
+        }
         if (point.z() - ground_reference < ground_z_threshold_) {
           continue;
         }
@@ -864,6 +885,38 @@ private:
     }
   }
 
+  bool useZAwarePathTracking() const
+  {
+    return z_following_enabled_ && z_aware_path_tracking_;
+  }
+
+  double pathPointScore(
+    const Eigen::Vector3d & path_point,
+    const Eigen::Vector3d & reference) const
+  {
+    const double xy_distance = (path_point.head<2>() - reference.head<2>()).norm();
+    if (!useZAwarePathTracking() || path_nearest_z_weight_ <= 0.0) {
+      return xy_distance;
+    }
+    return std::hypot(xy_distance, path_nearest_z_weight_ * (path_point.z() - reference.z()));
+  }
+
+  std::size_t nearestPathIndex(
+    const Eigen::Vector3d & current_pos,
+    const std::vector<Eigen::Vector3d> & path) const
+  {
+    std::size_t nearest_index = 0;
+    double nearest_score = std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i < path.size(); ++i) {
+      const double score = pathPointScore(path[i], current_pos);
+      if (score < nearest_score) {
+        nearest_score = score;
+        nearest_index = i;
+      }
+    }
+    return nearest_index;
+  }
+
   Eigen::Vector3d selectLocalTargetFromGlobalPath(
     const Eigen::Vector3d & current_pos,
     const std::vector<Eigen::Vector3d> & global_path) const
@@ -872,19 +925,17 @@ private:
       return current_pos;
     }
 
-    std::size_t nearest_index = 0;
-    double nearest_distance = std::numeric_limits<double>::infinity();
-    for (std::size_t i = 0; i < global_path.size(); ++i) {
-      const double distance = (global_path[i].head<2>() - current_pos.head<2>()).norm();
-      if (distance < nearest_distance) {
-        nearest_distance = distance;
-        nearest_index = i;
-      }
-    }
+    const std::size_t nearest_index = nearestPathIndex(current_pos, global_path);
 
     const Eigen::Vector3d final_goal = global_path.back();
-    if ((final_goal.head<2>() - current_pos.head<2>()).norm() <=
-      std::max(goal_reached_tolerance_, local_target_lookahead_))
+    const double final_xy_distance = (final_goal.head<2>() - current_pos.head<2>()).norm();
+    const double final_z_distance = std::abs(final_goal.z() - current_pos.z());
+    const double z_window = local_target_max_z_delta_ > 1.0e-6 ?
+      local_target_max_z_delta_ : max_allowed_z_jump_;
+    const bool final_z_reachable = !useZAwarePathTracking() ||
+      final_z_distance <= std::max(z_window, goal_reached_z_tolerance_);
+    if (final_xy_distance <= std::max(goal_reached_tolerance_, local_target_lookahead_) &&
+      final_z_reachable)
     {
       return clampTargetZ(final_goal, current_pos.z());
     }
@@ -896,7 +947,11 @@ private:
     for (std::size_t i = nearest_index; i + 1 < global_path.size(); ++i) {
       accumulated += (global_path[i + 1].head<2>() - global_path[i].head<2>()).norm();
       selected = global_path[i + 1];
-      if (accumulated >= lookahead) {
+      const bool reached_xy_lookahead = accumulated >= lookahead;
+      const bool reached_z_window = limit_local_target_by_z_ && useZAwarePathTracking() &&
+        z_window > 1.0e-6 && std::abs(selected.z() - current_pos.z()) >= z_window &&
+        accumulated >= min_local_target_lookahead_;
+      if (reached_xy_lookahead || reached_z_window) {
         break;
       }
     }
@@ -916,7 +971,7 @@ private:
     std::size_t nearest_index = 0;
     double nearest_distance = std::numeric_limits<double>::infinity();
     for (std::size_t i = 0; i < traj.points.size(); ++i) {
-      const double distance = (traj.points[i].head<2>() - current_pose.position.head<2>()).norm();
+      const double distance = pathPointScore(traj.points[i], current_pose.position);
       if (distance < nearest_distance) {
         nearest_distance = distance;
         nearest_index = i;
@@ -1082,7 +1137,7 @@ private:
       current_record.closed = true;
 
       if (current.key == goal_key) {
-        reconstructGridPath(records, start_key, goal_key, start.z(), path);
+        reconstructGridPath(records, start_key, goal_key, start.z(), target.z(), path);
         return path.size() >= 2;
       }
 
@@ -1143,7 +1198,8 @@ private:
     const Records & records,
     const GridKey & start_key,
     const GridKey & goal_key,
-    double fallback_z,
+    double start_z,
+    double target_z,
     std::vector<Eigen::Vector3d> & path)
   {
     std::vector<GridKey> keys;
@@ -1161,10 +1217,22 @@ private:
     }
 
     std::reverse(keys.begin(), keys.end());
+    std::vector<double> accumulated_distance(keys.size(), 0.0);
+    for (std::size_t i = 1; i < keys.size(); ++i) {
+      accumulated_distance[i] = accumulated_distance[i - 1] +
+        (gridKeyToWorld(keys[i]) - gridKeyToWorld(keys[i - 1])).norm();
+    }
+    const double total_distance = accumulated_distance.empty() ? 0.0 : accumulated_distance.back();
+
     path.clear();
     path.reserve(keys.size());
-    for (const auto & key : keys) {
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+      const auto & key = keys[i];
       const Eigen::Vector2d xy = gridKeyToWorld(key);
+      const double ratio = total_distance > 1.0e-8 ?
+        accumulated_distance[i] / total_distance :
+        (keys.size() > 1 ? static_cast<double>(i) / static_cast<double>(keys.size() - 1) : 0.0);
+      const double fallback_z = (1.0 - ratio) * start_z + ratio * target_z;
       const double z = referenceZ(xy.x(), xy.y(), fallback_z);
       path.emplace_back(xy.x(), xy.y(), z);
     }
@@ -1276,15 +1344,7 @@ private:
       return false;
     }
 
-    std::size_t nearest_index = 0;
-    double nearest_distance = std::numeric_limits<double>::infinity();
-    for (std::size_t i = 0; i < global_path_.size(); ++i) {
-      const double distance = (global_path_[i].head<2>() - current_pos.head<2>()).norm();
-      if (distance < nearest_distance) {
-        nearest_distance = distance;
-        nearest_index = i;
-      }
-    }
+    const std::size_t nearest_index = nearestPathIndex(current_pos, global_path_);
 
     double accumulated = 0.0;
     Eigen::Vector3d last = current_pos;
@@ -1307,8 +1367,16 @@ private:
     if (global_path_.empty()) {
       return false;
     }
-    return (global_path_.back().head<2>() - current_pos.head<2>()).norm() <=
-           goal_reached_tolerance_;
+    const Eigen::Vector3d goal = global_path_.back();
+    if ((goal.head<2>() - current_pos.head<2>()).norm() > goal_reached_tolerance_) {
+      return false;
+    }
+    if (useZAwarePathTracking() &&
+      std::abs(goal.z() - current_pos.z()) > goal_reached_z_tolerance_)
+    {
+      return false;
+    }
+    return true;
   }
 
   bool isGridOccupied(const GridKey & key) const
@@ -1501,7 +1569,7 @@ private:
       return fallback_z;
     }
 
-    double best_distance = std::numeric_limits<double>::infinity();
+    double best_score = std::numeric_limits<double>::infinity();
     double best_z = fallback_z;
     const Eigen::Vector2d query(x, y);
 
@@ -1514,9 +1582,12 @@ private:
         clamp((query - a).dot(ab) / length_sq, 0.0, 1.0) : 0.0;
       const Eigen::Vector2d projection = a + t * ab;
       const double distance = (query - projection).norm();
-      if (distance < best_distance) {
-        best_distance = distance;
-        best_z = (1.0 - t) * global_path_[i].z() + t * global_path_[i + 1].z();
+      const double z = (1.0 - t) * global_path_[i].z() + t * global_path_[i + 1].z();
+      const double score = useZAwarePathTracking() && reference_z_weight_ > 0.0 ?
+        std::hypot(distance, reference_z_weight_ * (z - fallback_z)) : distance;
+      if (score < best_score) {
+        best_score = score;
+        best_z = z;
       }
     }
 
@@ -1946,13 +2017,20 @@ private:
   bool remove_ground_points_{true};
   bool ground_relative_to_base_{true};
   double ground_z_threshold_{0.08};
+  bool ground_filter_use_path_z_{true};
   double self_filter_radius_{0.45};
   double dynamic_obstacle_timeout_{0.5};
   double local_target_lookahead_{2.0};
   double min_local_target_lookahead_{0.8};
   double goal_reached_tolerance_{0.35};
+  double goal_reached_z_tolerance_{0.45};
   bool z_following_enabled_{true};
   double max_allowed_z_jump_{0.35};
+  bool z_aware_path_tracking_{true};
+  double path_nearest_z_weight_{1.0};
+  double reference_z_weight_{1.0};
+  bool limit_local_target_by_z_{true};
+  double local_target_max_z_delta_{0.35};
   double max_vel_x_{0.6};
   double max_vel_y_{0.4};
   double max_acc_x_{0.5};

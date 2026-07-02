@@ -1,17 +1,20 @@
 # Global Planner Switching
 
-The navigation stack currently supports two global planning backends:
+The navigation stack supports three global planning backends:
 
-- `pct`: PCT Planner, the existing default.
+- `astar`: standalone A* planner in `nav3d_global_planning`, the default backend.
+- `pct`: PCT Planner backend.
 - `jie_octomap`: `jie_3d_nav` OctoMap planner through the `octo_planner` adapter.
 
-Both backends publish the same downstream interface:
+All backends publish the same downstream interface:
 
 - `/planned_path` (`nav_msgs/msg/Path`)
 - `/path` (`nav_msgs/msg/Path`)
-- `/planned_path_marker` (`visualization_msgs/msg/Marker`, `LINE_STRIP`)
+- `/planned_path_marker` (`visualization_msgs/msg/Marker`)
 
-All global paths use the `map` frame and contain real `x/y/z` waypoints.
+Paths use `frame_id: map`, contain real `x/y/z` waypoints, and are ordered
+from start to goal. Global planners only publish paths; robot execution still
+flows through EGO-Planner and the command gate.
 
 ## Switch By Configuration
 
@@ -19,97 +22,81 @@ Edit `src/3dnav_bringup/config/nav3d_system.yaml`:
 
 ```yaml
 global_planning:
-  algorithm: "pct"
+  enabled: true
+  algorithm: "astar"        # astar / pct / jie_octomap
 ```
 
-or:
+The same file registers each planner in `global_planning.algorithms`:
 
 ```yaml
-global_planning:
-  algorithm: "jie_octomap"
+algorithms:
+  pct:
+    package: "pct_global_planner"
+    launch: "pct_global_planner.launch.py"
+  jie_octomap:
+    package: "octo_planner"
+    launch: "jie_3d_global_planner.launch.py"
+  astar:
+    package: "nav3d_global_planning"
+    launch: "astar_global_planner.launch.py"
 ```
 
-The unified launch reads the same `global_planning.algorithms` table, so future
-planners can be added by registering a package, launch file, and config file in
-that YAML.
+Only the selected launch file is included, so the three planners do not publish
+competing `/planned_path` messages.
 
-## Launch PCT Only
+## One-Off Launch Override
 
 ```bash
 ros2 launch nav3d_bringup global_planning.launch algorithm:=pct
-```
-
-The compatibility package alias installed by `nav3d_bringup` also allows:
-
-```bash
-ros2 launch 3dnav_bringup global_planning.launch algorithm:=pct
-```
-
-## Launch jie_3d_nav Only
-
-```bash
 ros2 launch nav3d_bringup global_planning.launch algorithm:=jie_octomap
+ros2 launch nav3d_bringup global_planning.launch algorithm:=astar
 ```
 
-The lower-level launch is:
+The compatibility package alias also allows:
 
 ```bash
-ros2 launch octo_planner jie_3d_global_planner.launch.py
+ros2 launch 3dnav_bringup global_planning.launch algorithm:=astar
 ```
 
-This starts only the OctoMap global planner path pipeline. It does not start
-local planning, localization, the old `d1_controller`, or any node that publishes
-directly to `/cmd_vel`.
+## Full Navigation
 
-## Full Navigation With jie_3d_nav
-
-Set:
-
-```yaml
-global_planning:
-  algorithm: "jie_octomap"
-```
-
-Then run:
+Use the configured algorithm:
 
 ```bash
 ros2 launch nav3d_bringup navigation.launch
 ```
 
-For a one-off override:
+Temporarily override it:
 
 ```bash
+ros2 launch nav3d_bringup navigation.launch global_planner_algorithm:=pct
 ros2 launch nav3d_bringup navigation.launch global_planner_algorithm:=jie_octomap
+ros2 launch nav3d_bringup navigation.launch global_planner_algorithm:=astar
 ```
 
-## jie_3d_nav Map Files
+## Map Files
 
-The preferred OctoMap input is:
-
-```text
-maps/map_preprocessed.bt
-```
-
-If that file is missing but this PCD exists:
+The common project-relative map paths are:
 
 ```text
 maps/map_preprocessed.pcd
+maps/map_preprocessed.bt
+maps/tomogram/map_preprocessed.pickle
 ```
 
-`octo_planner/jie_3d_global_planner.launch.py` starts
-`jie_octomap/pcd_to_octomap_node` automatically and publishes `/octomap` from
-the PCD. If neither file exists, the adapter publishes `MAP_ERROR` on:
+`pct` uses the tomogram pickle. `jie_octomap` prefers the `.bt` file and can
+build `/octomap` from the PCD. `astar` also prefers `maps/map_preprocessed.bt`;
+if it is missing, it loads `maps/map_preprocessed.pcd` directly into its
+internal voxel grid. In `2.5d` mode, `astar` also subscribes to the PCT
+`/tomogram` visualization cloud and only searches low-cost tomogram cells, so
+algorithm switching keeps the same map domain.
 
-```text
-/jie_3d_global_planner/status
-```
-
-All map paths are project-relative and are resolved against the workspace root.
-Do not configure `/home/...` paths in the planner config.
+Avoid hard-coded `/home/...` paths. Use paths relative to the workspace root or
+set `NAV3D_WS` when launching from another directory.
 
 ## Goal And Start Inputs
 
-`jie_octomap` uses the current robot pose from TF by default:
+The global planners use TF start by default:
 
 ```yaml
 start_source: "tf"
@@ -117,22 +104,15 @@ map_frame: "map"
 base_frame: "base_link"
 ```
 
-It accepts 3D goals on:
+Supported goal topics:
 
 ```text
 /goal_pose_3d
 /goal_point_3d
+/goal_pose
 ```
 
-It also keeps a debug manual start mode through:
-
-```text
-/jie_3d_nav/manual_start_point
-/jie_3d_nav/manual_start_pose
-```
-
-Set `start_source: "manual"` or `start_source: "topic"` in
-`octo_planner/config/jie_3d_global_planner.yaml` to use those debug topics.
+For `/goal_pose`, the planner uses `default_goal_z`.
 
 ## EGO-Planner Interface
 
@@ -142,39 +122,24 @@ EGO-Planner subscribes to:
 /planned_path
 ```
 
-The adapter republishes the raw `jie_path_node` output to `/planned_path` and
-`/path`, then publishes a `LINE_STRIP` marker on `/planned_path_marker`. This
-keeps EGO-Planner independent of which global planner is selected.
-
-Check the path with:
+Verify the global path:
 
 ```bash
 ros2 topic echo /planned_path --once
 ros2 topic info /planned_path
 ```
 
-Check EGO-Planner is subscribed with:
+Verify EGO-Planner is connected:
 
 ```bash
 ros2 topic info /planned_path
 ros2 topic echo /ego_local_planner/status
 ```
 
-## Execution Control
-
-`jie_octomap` only publishes global paths. Robot motion still flows through:
+Robot motion remains gated:
 
 ```text
 /planned_path -> EGO-Planner -> /cmd_vel_nav -> cmd_vel_gate -> /cmd_vel
 ```
 
-The robot should not execute a newly published path until `/nav3d/start` opens
-the navigation execution controller. `/nav3d/stop` should still stop motion
-through `cmd_vel_gate`.
-
-## Avoid Topic Conflicts
-
-Do not run `pct` and `jie_octomap` global planners at the same time in normal
-navigation. Both intentionally converge on `/planned_path`, `/path`, and
-`/planned_path_marker`, so running both can make the local planner receive
-competing global paths.
+Use `/nav3d/start` to execute and `/nav3d/stop` to stop.

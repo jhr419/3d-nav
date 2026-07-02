@@ -30,6 +30,16 @@ DEFAULT_ALGORITHMS = {
         "launch": "jie_3d_global_planner.launch.py",
         "config": "src/global_planning/jie_3d_nav/octo_planner/config/jie_3d_global_planner.yaml",
     },
+    "astar": {
+        "package": "nav3d_global_planning",
+        "launch": "astar_global_planner.launch.py",
+        "config": "src/global_planning/3dnav_global_planning/config/astar_global_planner.yaml",
+        "launch_arguments": {
+            "pcd_file": "maps/map_preprocessed.pcd",
+            "tomogram_file": "map_preprocessed",
+            "tomogram_dir": "maps/tomogram",
+        },
+    },
 }
 
 
@@ -50,6 +60,9 @@ def _normalize_algorithm(raw: str) -> str:
         "jie_octomap": "jie_octomap",
         "octomap": "jie_octomap",
         "octomap_planner": "jie_octomap",
+        "a_star": "astar",
+        "astar": "astar",
+        "astar_global_planner": "astar",
     }
     return aliases.get(lowered, lowered)
 

@@ -1,6 +1,8 @@
 <launch>
   <arg name="use_sim_time" default="false"/>
+  <arg name="require_fresh_cloud" default="true"/>
   <include file="$(find-pkg-share nav3d_bringup)/launch/local_planning_impl.launch.py">
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="require_fresh_cloud" value="$(var require_fresh_cloud)"/>
   </include>
 </launch>

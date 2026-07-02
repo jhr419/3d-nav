@@ -17,6 +17,7 @@
   <exec_depend>livox_ros_driver2</exec_depend>
   <exec_depend>localization_adapter</exec_depend>
   <exec_depend>mapping_adapter</exec_depend>
+  <exec_depend>nav3d_global_planning</exec_depend>
   <exec_depend>jie_octomap</exec_depend>
   <exec_depend>octo_planner</exec_depend>
   <exec_depend>pct_global_planner</exec_depend>

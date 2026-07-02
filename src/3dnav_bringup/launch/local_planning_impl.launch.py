@@ -14,6 +14,7 @@ from _utils import package_file
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="false"),
+        DeclareLaunchArgument("require_fresh_cloud", default_value="true"),
         DeclareLaunchArgument(
             "config_file",
             default_value=package_file("ego_local_planner", "config", "ego_local_planner.yaml"),
@@ -27,6 +28,7 @@ def generate_launch_description():
                 LaunchConfiguration("config_file"),
                 {
                     "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
+                    "require_fresh_cloud": ParameterValue(LaunchConfiguration("require_fresh_cloud"), value_type=bool),
                     "global_path_topic": "/planned_path",
                     "cmd_vel_topic": "/cmd_vel_nav",
                 },

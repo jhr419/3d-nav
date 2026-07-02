@@ -23,6 +23,7 @@ def generate_launch_description():
         DeclareLaunchArgument("start_livox_driver", default_value="true"),
         DeclareLaunchArgument("start_fastlio", default_value="true"),
         DeclareLaunchArgument("global_planner_algorithm", default_value=""),
+        DeclareLaunchArgument("require_fresh_cloud", default_value="true"),
         DeclareLaunchArgument(
             "rviz_config",
             default_value=package_file("nav3d_bringup", "rviz", "nav3d_debug.rviz"),
@@ -48,7 +49,10 @@ def generate_launch_description():
         ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(package_file("nav3d_bringup", "launch", "local_planning_impl.launch.py")),
-            launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
+            launch_arguments={
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "require_fresh_cloud": LaunchConfiguration("require_fresh_cloud"),
+            }.items(),
             condition=IfCondition(LaunchConfiguration("local_planning")),
         ),
         IncludeLaunchDescription(

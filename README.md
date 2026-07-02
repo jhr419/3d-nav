@@ -1,6 +1,6 @@
 # ROS2 Humble 三维导航系统
 
-本仓库是基于 ROS2 Humble 的三维导航工作区，面向 Livox MID360 + FAST-LIO 建图定位、PCT Tomography 全局地图处理与规划、EGO 局部规划、Go2 底盘速度桥接和导航执行控制。
+本仓库是基于 ROS2 Humble 的三维导航工作区，面向 Livox MID360 + FAST-LIO 建图定位、PCT Tomography 地图处理、A* 全局规划、EGO 局部规划、Go2 底盘速度桥接和导航执行控制。
 
 系统目标是把建图、地图预处理、定位、全局规划、局部规划、机器人接口和执行控制解耦，并统一通过 `3dnav_bringup` 启动。
 
@@ -59,7 +59,7 @@
 | 建图 | `fast_lio`、`mapping_adapter` | FAST-LIO 建图、地图适配输出 |
 | 地图处理 | `pct_planner_ros2`、`pcd_preprocessor_ros2` | PCD 预处理、tomogram 生成 |
 | 定位 | `localization_adapter` | FAST-LIO 里程计 + ICP 地图定位 |
-| 全局规划 | `pct_global_planner` | PCT tomogram 全局路径规划 |
+| 全局规划 | `nav3d_global_planning`、`pct_global_planner`、`octo_planner` | 默认 A* 全局规划，可切换 PCT / OctoMap 后端 |
 | 局部规划 | `ego_local_planner` | 跟踪 `/planned_path` 并输出 `/cmd_vel_nav` |
 | 执行控制 | `nav3d_control` | Start/Stop/Pause/Resume/Clear Path 状态机和速度门控 |
 | 机器人接口 | `go2_twist_bridge`、`unitree_ros2` | `/cmd_vel` 到 Unitree Go2 Sport API |
@@ -253,7 +253,7 @@ ls maps/tomogram
 ros2 launch 3dnav_bringup map_planner_test.launch
 ```
 
-该流程用于验证 `map_preprocessed.pcd` 和 `map_preprocessed.pickle` 是否可被 PCT Planner 正常加载和规划。
+该流程用于验证 `map_preprocessed.pcd` 和 `map_preprocessed.pickle` 是否可被地图处理/规划链路正常加载。日常导航默认使用后续 A* 全局规划入口。
 
 ### 4. 定位
 
@@ -291,7 +291,14 @@ ros2 launch 3dnav_bringup global_planning.launch
 默认算法：
 
 ```text
-PCT Planner
+A* Global Planner
+```
+
+默认地图输入：
+
+```text
+maps/map_preprocessed.pcd
+maps/tomogram/map_preprocessed.pickle
 ```
 
 主要输出：
@@ -300,7 +307,15 @@ PCT Planner
 /planned_path
 /path
 /planned_path_marker
-/pct_global_planner/status
+/astar_global_planner/status
+```
+
+临时切换其它全局规划算法：
+
+```bash
+ros2 launch 3dnav_bringup global_planning.launch algorithm:=pct
+ros2 launch 3dnav_bringup global_planning.launch algorithm:=jie_octomap
+ros2 launch 3dnav_bringup global_planning.launch algorithm:=astar
 ```
 
 ### 6. 局部规划
@@ -325,6 +340,12 @@ EGO Planner
 
 ```text
 /cmd_vel_nav
+```
+
+离线只检查局部规划链路、不等待实时点云：
+
+```bash
+ros2 launch 3dnav_bringup local_planning.launch require_fresh_cloud:=false
 ```
 
 ### 7. 机器人接口
@@ -362,7 +383,7 @@ ros2 launch 3dnav_bringup navigation.launch
 
 ```text
 Localization
-PCT Global Planner
+A* Global Planner
 EGO Local Planner
 nav_execution_controller_node
 cmd_vel_gate_node
@@ -376,12 +397,32 @@ RViz2
 ros2 launch 3dnav_bringup navigation.launch robot_api:=false
 ```
 
+如果只做离线规划/RViz 检查，不启动定位、雷达和机器人接口：
+
+```bash
+ros2 launch 3dnav_bringup navigation.launch \
+  localization:=false \
+  robot_api:=false \
+  start_livox_driver:=false \
+  start_fastlio:=false \
+  require_fresh_cloud:=false \
+  rviz:=true
+```
+
 如果外部已经启动 FAST-LIO/Livox：
 
 ```bash
 ros2 launch 3dnav_bringup navigation.launch \
   start_livox_driver:=false \
   start_fastlio:=false
+```
+
+临时切换全局规划算法：
+
+```bash
+ros2 launch 3dnav_bringup navigation.launch global_planner_algorithm:=pct
+ros2 launch 3dnav_bringup navigation.launch global_planner_algorithm:=jie_octomap
+ros2 launch 3dnav_bringup navigation.launch global_planner_algorithm:=astar
 ```
 
 ### 9. 完整系统
@@ -395,6 +436,8 @@ ros2 launch 3dnav_bringup full_system.launch
 ```bash
 ros2 launch 3dnav_bringup full_system.launch mapping:=false rviz:=true
 ```
+
+`full_system.launch` 同样默认使用 A* 全局规划，也可通过 `global_planner_algorithm:=pct` 或 `global_planner_algorithm:=jie_octomap` 临时切换。
 
 ## 导航执行控制
 
@@ -435,7 +478,7 @@ ros2 service call /nav3d/clear_path std_srvs/srv/Trigger "{}"
 执行逻辑：
 
 1. RViz 选择目标点。
-2. PCT Planner 生成 `/planned_path`。
+2. A* Global Planner 生成 `/planned_path`。
 3. 状态变为 `PATH_READY`，机器人不会运动。
 4. 调用 `/nav3d/start`。
 5. 状态变为 `RUNNING`，`cmd_vel_gate` 开始转发 `/cmd_vel_nav` 到 `/cmd_vel`。
@@ -450,7 +493,7 @@ ros2 service call /nav3d/clear_path std_srvs/srv/Trigger "{}"
 2. 保存/导出 FAST-LIO 地图到 maps/map_origin.pcd
 3. ros2 launch 3dnav_bringup map_preprocess.launch
 4. 确认 maps/map_preprocessed.pcd 和 maps/tomogram/map_preprocessed.pickle 存在
-5. ros2 launch 3dnav_bringup map_planner_test.launch
+5. 可选：ros2 launch 3dnav_bringup map_planner_test.launch
 6. ros2 launch 3dnav_bringup navigation.launch
 ```
 
@@ -468,6 +511,7 @@ ros2 service call /nav3d/clear_path std_srvs/srv/Trigger "{}"
 
 - 定位 ICP 参数：`src/localization/localization_adapter/config/fastlio_mid360_icp_localization.yaml`
 - PCT tomogram 参数：`src/map_process/PCT_planner/pct_planner_ros2/config/tomography.yaml`
+- A* 全局规划参数：`src/global_planning/3dnav_global_planning/config/astar_global_planner.yaml`
 - PCT 全局规划参数：`src/global_planning/pct_global_planner/config/pct_global_planner.yaml`
 - EGO 局部规划参数：`src/local_planning/ego_local_planner/config/ego_local_planner.yaml`
 - Go2 速度桥参数：`src/robot_api/go2_twist_bridge/config/twist_bridge.yaml`

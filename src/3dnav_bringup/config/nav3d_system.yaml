@@ -11,7 +11,7 @@ paths:
 
 global_planning:
   enabled: true
-  algorithm: "pct"
+  algorithm: "astar"
   clearance_cost_enabled: true
   robot_radius: 0.35
   leg_safety_margin: 0.20
@@ -74,6 +74,15 @@ global_planning:
       launch: "jie_3d_global_planner.launch.py"
       config: "src/global_planning/jie_3d_nav/octo_planner/config/jie_3d_global_planner.yaml"
 
+    astar:
+      package: "nav3d_global_planning"
+      launch: "astar_global_planner.launch.py"
+      config: "src/global_planning/3dnav_global_planning/config/astar_global_planner.yaml"
+      launch_arguments:
+        pcd_file: "maps/map_preprocessed.pcd"
+        tomogram_file: "map_preprocessed"
+        tomogram_dir: "maps/tomogram"
+
 modules:
   mapping:
     package: "mapping_adapter"
@@ -88,9 +97,9 @@ modules:
     launch: "fastlio_icp_localization.launch"
     algorithm: "FAST-LIO + ICP"
   global_planning:
-    package: "pct_global_planner"
-    launch: "pct_global_planner.launch.py"
-    algorithm: "PCT Planner"
+    package: "nav3d_global_planning"
+    launch: "astar_global_planner.launch.py"
+    algorithm: "A* Global Planner"
   local_planning:
     package: "ego_local_planner"
     launch: "ego_local_planner.launch.py"
