@@ -186,6 +186,52 @@ colcon build --symlink-install --packages-select \
 
 ## 启动流程
 
+### 0. 快速启动当前默认系统
+
+进入工作区并加载环境：
+
+```bash
+cd ~/3dnav_ws
+source install/setup.bash
+```
+
+在线导航一条命令启动当前默认链路：
+
+```bash
+ros2 launch 3dnav_bringup navigation.launch
+```
+
+默认启动内容：
+
+```text
+FAST-LIO / Livox
+Localization
+A* Global Planner
+EGO Local Planner
+nav_execution_controller_node
+cmd_vel_gate_node
+go2_twist_bridge
+RViz2
+```
+
+离线测试一条命令启动，只检查规划和 RViz，不接雷达、不接机器人、不等待实时点云：
+
+```bash
+ros2 launch 3dnav_bringup navigation.launch \
+  localization:=false \
+  robot_api:=false \
+  start_livox_driver:=false \
+  start_fastlio:=false \
+  require_fresh_cloud:=false \
+  rviz:=true
+```
+
+也可以使用总入口启动当前默认导航系统：
+
+```bash
+ros2 launch 3dnav_bringup full_system.launch mapping:=false navigation:=true rviz:=true
+```
+
 ### 1. FAST-LIO 建图
 
 在线建图：
