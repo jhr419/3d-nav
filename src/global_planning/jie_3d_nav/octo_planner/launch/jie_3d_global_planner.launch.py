@@ -173,7 +173,7 @@ def _launch_setup(context, *args, **kwargs):
             Node(
                 package="rviz2",
                 executable="rviz2",
-                name="rviz2",
+                name="planning_rviz2",
                 output="screen",
                 arguments=["-d", LaunchConfiguration("rviz_config")],
                 condition=IfCondition(LaunchConfiguration("launch_rviz")),

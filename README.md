@@ -211,25 +211,28 @@ EGO Local Planner
 nav_execution_controller_node
 cmd_vel_gate_node
 go2_twist_bridge
-RViz2
+Localization RViz2
+Planning RViz2
 ```
 
 离线测试一条命令启动，只检查规划和 RViz，不接雷达、不接机器人、不等待实时点云：
 
 ```bash
-ros2 launch 3dnav_bringup navigation.launch \
-  localization:=false \
-  robot_api:=false \
-  start_livox_driver:=false \
-  start_fastlio:=false \
-  require_fresh_cloud:=false \
-  rviz:=true
+ros2 launch 3dnav_bringup navigation.launch offline_test:=true
 ```
 
 也可以使用总入口启动当前默认导航系统：
 
 ```bash
 ros2 launch 3dnav_bringup full_system.launch mapping:=false navigation:=true rviz:=true
+```
+
+该总入口默认会打开两个 RViz 窗口：`localization_rviz2` 用于定位显示，`planning_rviz2` 用于路径规划显示。路径规划窗口复用 A* 离线测试同一套 PCT map/tomogram/goal marker RViz 配置。
+
+总入口也支持离线测试开关：
+
+```bash
+ros2 launch 3dnav_bringup full_system.launch offline_test:=true
 ```
 
 ### 1. FAST-LIO 建图
@@ -434,7 +437,15 @@ EGO Local Planner
 nav_execution_controller_node
 cmd_vel_gate_node
 go2_twist_bridge
-RViz2
+Localization RViz2
+Planning RViz2
+```
+
+`rviz:=true` 时会打开两个窗口：
+
+```text
+localization_rviz2: 定位、ICP、地图/点云显示
+planning_rviz2: A* 路径规划、/global_points、/tomogram、起终点 marker、/planned_path
 ```
 
 如果只想看算法链路，不接管机器人速度桥：
@@ -446,13 +457,17 @@ ros2 launch 3dnav_bringup navigation.launch robot_api:=false
 如果只做离线规划/RViz 检查，不启动定位、雷达和机器人接口：
 
 ```bash
-ros2 launch 3dnav_bringup navigation.launch \
-  localization:=false \
-  robot_api:=false \
-  start_livox_driver:=false \
-  start_fastlio:=false \
-  require_fresh_cloud:=false \
-  rviz:=true
+ros2 launch 3dnav_bringup navigation.launch offline_test:=true
+```
+
+`offline_test:=true` 会自动覆盖为：
+
+```text
+localization:=false
+robot_api:=false
+start_livox_driver:=false
+start_fastlio:=false
+require_fresh_cloud:=false
 ```
 
 如果外部已经启动 FAST-LIO/Livox：

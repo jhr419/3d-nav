@@ -143,5 +143,7 @@ Visualization Manager:
       Yaw: 0
     Saved: ~
 Window Geometry:
-  Height: 1000
-  Width: 1600
+  Height: 900
+  Width: 900
+  X: 0
+  Y: 40

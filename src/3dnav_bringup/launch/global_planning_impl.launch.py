@@ -23,12 +23,16 @@ DEFAULT_ALGORITHMS = {
             "tomogram_file": "map_preprocessed",
             "tomogram_dir": "maps/tomogram",
             "planner_lib_dir": "src/map_process/PCT_planner/planner/lib",
+            "rviz_config": "src/global_planning/pct_global_planner/rviz/pct_global_planner.rviz",
         },
     },
     "jie_octomap": {
         "package": "octo_planner",
         "launch": "jie_3d_global_planner.launch.py",
         "config": "src/global_planning/jie_3d_nav/octo_planner/config/jie_3d_global_planner.yaml",
+        "launch_arguments": {
+            "rviz_config": "src/global_planning/jie_3d_nav/jie_octomap/rviz/octomap_test.rviz",
+        },
     },
     "astar": {
         "package": "nav3d_global_planning",
@@ -38,6 +42,7 @@ DEFAULT_ALGORITHMS = {
             "pcd_file": "maps/map_preprocessed.pcd",
             "tomogram_file": "map_preprocessed",
             "tomogram_dir": "maps/tomogram",
+            "rviz_config": "src/global_planning/pct_global_planner/rviz/pct_global_planner.rviz",
         },
     },
 }
@@ -82,6 +87,8 @@ def _looks_like_workspace_path(key: str, value: str) -> bool:
         return False
     if key == "tomogram_file":
         return False
+    if key == "rviz_config":
+        return "/" in value or value.startswith(".") or value.startswith("~")
     lowered = key.lower()
     if not any(token in lowered for token in ("file", "dir", "path")):
         return False
