@@ -257,7 +257,17 @@ public:
     for (const auto & topic : pointcloud_topics_) {
       pointcloud_subs_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
         topic, rclcpp::SensorDataQoS(),
-        std::bind(&EgoLocalPlannerNode::pointCloudCallback, this, std::placeholders::_1)));
+        [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+          pointCloudCallback(msg, false);
+        }));
+    }
+    auto static_cloud_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+    for (const auto & topic : static_pointcloud_topics_) {
+      static_pointcloud_subs_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
+        topic, static_cloud_qos,
+        [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+          pointCloudCallback(msg, true);
+        }));
     }
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       odom_topic_, rclcpp::QoS(20),
@@ -304,6 +314,12 @@ public:
       "EGO local planner adapter ready: path=%s clouds=%s cmd=%s",
       global_path_topic_.c_str(), joinTopicList(pointcloud_topics_).c_str(),
       cmd_vel_topic_.c_str());
+    if (!static_pointcloud_topics_.empty()) {
+      RCLCPP_INFO(
+        get_logger(),
+        "EGO local planner static obstacle clouds=%s",
+        joinTopicList(static_pointcloud_topics_).c_str());
+    }
   }
 
 private:
@@ -319,6 +335,7 @@ private:
     declare_parameter<std::string>("pointcloud_topic", "/livox/lidar");
     declare_parameter<std::string>(
       "additional_pointcloud_topics", "/cloud_registered,/cloud_registered_body,/mid360");
+    declare_parameter<std::string>("static_pointcloud_topics", "/global_points");
     declare_parameter<std::string>("pointcloud_frame_remaps", "body:livox_frame");
     declare_parameter<std::string>("pointcloud_map_frame_aliases", "camera_init");
     declare_parameter<bool>("require_fresh_cloud", true);
@@ -378,6 +395,8 @@ private:
 
     declare_parameter<double>("traj_tracking_lookahead_time", 0.5);
     declare_parameter<double>("traj_tracking_lookahead_distance", 0.6);
+    declare_parameter<bool>("line_of_sight_tracking", true);
+    declare_parameter<double>("cmd_collision_check_time", 0.6);
     declare_parameter<double>("kp_x", 0.8);
     declare_parameter<double>("kp_y", 0.8);
     declare_parameter<double>("kp_yaw", 1.2);
@@ -406,6 +425,7 @@ private:
     declare_parameter<double>("obstacle_stop_distance", 0.35);
     declare_parameter<bool>("debug_visualization_enabled", true);
     declare_parameter<double>("footprint_height", 0.55);
+    declare_parameter<double>("static_map_update_distance", 0.25);
   }
 
   void readParameters()
@@ -419,6 +439,7 @@ private:
     global_path_topic_ = get_parameter("global_path_topic").as_string();
     pointcloud_topic_ = get_parameter("pointcloud_topic").as_string();
     additional_pointcloud_topics_ = get_parameter("additional_pointcloud_topics").as_string();
+    static_pointcloud_topics_param_ = get_parameter("static_pointcloud_topics").as_string();
     pointcloud_frame_remaps_ = get_parameter("pointcloud_frame_remaps").as_string();
     pointcloud_map_frame_aliases_param_ =
       get_parameter("pointcloud_map_frame_aliases").as_string();
@@ -436,6 +457,7 @@ private:
         pointcloud_topics_.push_back(topic);
       }
     }
+    static_pointcloud_topics_ = splitTopicList(static_pointcloud_topics_param_);
     pointcloud_map_frame_aliases_ = splitTopicList(pointcloud_map_frame_aliases_param_);
     if (std::find(
         pointcloud_map_frame_aliases_.begin(), pointcloud_map_frame_aliases_.end(),
@@ -512,6 +534,9 @@ private:
     traj_tracking_lookahead_time_ = get_parameter("traj_tracking_lookahead_time").as_double();
     traj_tracking_lookahead_distance_ =
       get_parameter("traj_tracking_lookahead_distance").as_double();
+    line_of_sight_tracking_ = get_parameter("line_of_sight_tracking").as_bool();
+    cmd_collision_check_time_ =
+      std::max(0.0, get_parameter("cmd_collision_check_time").as_double());
     kp_x_ = get_parameter("kp_x").as_double();
     kp_y_ = get_parameter("kp_y").as_double();
     kp_yaw_ = get_parameter("kp_yaw").as_double();
@@ -546,6 +571,8 @@ private:
       std::max(0.0, get_parameter("obstacle_stop_distance").as_double());
     debug_visualization_enabled_ = get_parameter("debug_visualization_enabled").as_bool();
     footprint_height_ = std::max(0.05, get_parameter("footprint_height").as_double());
+    static_map_update_distance_ =
+      std::max(0.05, get_parameter("static_map_update_distance").as_double());
   }
 
   void globalPathCallback(const nav_msgs::msg::Path::SharedPtr msg)
@@ -593,30 +620,52 @@ private:
     has_odom_ = true;
   }
 
-  void pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+  void pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg, bool static_cloud)
   {
+    geometry_msgs::msg::TransformStamped cloud_to_map;
+    bool need_transform = false;
+    if (!resolveCloudTransform(*msg, cloud_to_map, need_transform)) {
+      return;
+    }
+
+    if (static_cloud) {
+      static_map_points_.clear();
+      static_map_points_.reserve(msg->width * msg->height);
+
+      sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
+      sensor_msgs::PointCloud2ConstIterator<float> iter_y(*msg, "y");
+      sensor_msgs::PointCloud2ConstIterator<float> iter_z(*msg, "z");
+      for (; iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z) {
+        Eigen::Vector3d point(*iter_x, *iter_y, *iter_z);
+        if (!std::isfinite(point.x()) || !std::isfinite(point.y()) || !std::isfinite(point.z())) {
+          continue;
+        }
+        if (need_transform) {
+          point = transformPoint(cloud_to_map, point);
+        }
+        static_map_points_.push_back(point);
+      }
+
+      has_static_map_ = !static_map_points_.empty();
+      needs_replan_ = true;
+      RCLCPP_INFO(
+        get_logger(),
+        "Loaded static obstacle cloud for EGO local planner: %zu points",
+        static_map_points_.size());
+
+      Pose3D base_pose;
+      if (getCurrentPose(base_pose)) {
+        rebuildLocalObstacleMap(base_pose, true);
+        publishLocalMap();
+      }
+      return;
+    }
+
     Pose3D base_pose;
     if (!getCurrentPose(base_pose)) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
         "Cannot update EGO local map because current pose is unavailable.");
-      return;
-    }
-
-    const std::string raw_cloud_frame =
-      msg->header.frame_id.empty() ? lidar_frame_ : msg->header.frame_id;
-    std::string cloud_frame = remapFrameName(raw_cloud_frame, pointcloud_frame_remaps_);
-    if (containsName(pointcloud_map_frame_aliases_, cloud_frame)) {
-      cloud_frame = map_frame_;
-    }
-
-    geometry_msgs::msg::TransformStamped cloud_to_map;
-    const bool need_transform = cloud_frame != map_frame_;
-    if (need_transform && !lookupTransform(map_frame_, cloud_frame, cloud_to_map)) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "Cannot transform point cloud from '%s' to '%s'.",
-        cloud_frame.c_str(), map_frame_.c_str());
       return;
     }
 
@@ -665,16 +714,118 @@ private:
       insertInflatedPoint(point, occupied_voxels, occupied_xy);
     }
 
-    clearRobotFootprint(base_pose.position, occupied_voxels, occupied_xy);
-
-    raw_obstacle_points_ = std::move(raw_points);
-    occupied_voxels_ = std::move(occupied_voxels);
-    occupied_xy_ = std::move(occupied_xy);
+    dynamic_raw_obstacle_points_ = std::move(raw_points);
+    dynamic_occupied_voxels_ = std::move(occupied_voxels);
+    dynamic_occupied_xy_ = std::move(occupied_xy);
     has_cloud_ = true;
     last_cloud_time_ = now();
     needs_replan_ = needs_replan_ || replan_on_dynamic_obstacle_;
 
+    rebuildLocalObstacleMap(base_pose, true);
     publishLocalMap();
+  }
+
+  bool resolveCloudTransform(
+    const sensor_msgs::msg::PointCloud2 & msg,
+    geometry_msgs::msg::TransformStamped & cloud_to_map,
+    bool & need_transform)
+  {
+    const std::string raw_cloud_frame =
+      msg.header.frame_id.empty() ? lidar_frame_ : msg.header.frame_id;
+    std::string cloud_frame = remapFrameName(raw_cloud_frame, pointcloud_frame_remaps_);
+    if (containsName(pointcloud_map_frame_aliases_, cloud_frame)) {
+      cloud_frame = map_frame_;
+    }
+
+    need_transform = cloud_frame != map_frame_;
+    if (!need_transform) {
+      return true;
+    }
+    if (!lookupTransform(map_frame_, cloud_frame, cloud_to_map)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 1000,
+        "Cannot transform point cloud from '%s' to '%s'.",
+        cloud_frame.c_str(), map_frame_.c_str());
+      return false;
+    }
+    return true;
+  }
+
+  bool isLocalObstaclePoint(const Eigen::Vector3d & point, const Pose3D & base_pose) const
+  {
+    const double dx = point.x() - base_pose.position.x();
+    const double dy = point.y() - base_pose.position.y();
+    const double dz = point.z() - base_pose.position.z();
+    if (std::hypot(dx, dy) > local_map_radius_) {
+      return false;
+    }
+    if (std::abs(dz) > local_map_height_) {
+      return false;
+    }
+    if (std::hypot(dx, dy) < self_filter_radius_) {
+      return false;
+    }
+    if (remove_ground_points_) {
+      double ground_reference = ground_relative_to_base_ ? base_pose.position.z() : 0.0;
+      if (ground_filter_use_path_z_ && z_following_enabled_ && has_path_) {
+        ground_reference = referenceZ(point.x(), point.y(), ground_reference);
+      }
+      if (point.z() - ground_reference < ground_z_threshold_) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void addLocalObstaclePoint(
+    const Eigen::Vector3d & point,
+    std::vector<Eigen::Vector3d> & raw_points,
+    std::unordered_set<VoxelKey, VoxelKeyHash> & occupied_voxels,
+    std::unordered_set<GridKey, GridKeyHash> & occupied_xy) const
+  {
+    raw_points.push_back(point);
+    insertInflatedPoint(point, occupied_voxels, occupied_xy);
+  }
+
+  void rebuildLocalObstacleMap(const Pose3D & base_pose, bool force)
+  {
+    if (!force && !has_static_map_) {
+      return;
+    }
+    if (!force && has_local_map_rebuild_pose_) {
+      const double moved = (base_pose.position - last_local_map_rebuild_pose_).norm();
+      if (moved < static_map_update_distance_) {
+        return;
+      }
+    }
+
+    std::vector<Eigen::Vector3d> raw_points;
+    std::unordered_set<VoxelKey, VoxelKeyHash> occupied_voxels;
+    std::unordered_set<GridKey, GridKeyHash> occupied_xy;
+    raw_points.reserve(dynamic_raw_obstacle_points_.size() + 4096);
+
+    if (has_static_map_) {
+      for (const auto & point : static_map_points_) {
+        if (!isLocalObstaclePoint(point, base_pose)) {
+          continue;
+        }
+        addLocalObstaclePoint(point, raw_points, occupied_voxels, occupied_xy);
+      }
+    }
+
+    raw_points.insert(
+      raw_points.end(),
+      dynamic_raw_obstacle_points_.begin(),
+      dynamic_raw_obstacle_points_.end());
+    occupied_voxels.insert(dynamic_occupied_voxels_.begin(), dynamic_occupied_voxels_.end());
+    occupied_xy.insert(dynamic_occupied_xy_.begin(), dynamic_occupied_xy_.end());
+
+    clearRobotFootprint(base_pose.position, occupied_voxels, occupied_xy);
+    raw_obstacle_points_ = std::move(raw_points);
+    occupied_voxels_ = std::move(occupied_voxels);
+    occupied_xy_ = std::move(occupied_xy);
+    last_local_map_rebuild_pose_ = base_pose.position;
+    has_local_map_rebuild_pose_ = true;
   }
 
   void replanCallback()
@@ -687,6 +838,7 @@ private:
       setStatus("FAILURE");
       return;
     }
+    rebuildLocalObstacleMap(current_pose, false);
 
     if (!has_path_ || global_path_.empty()) {
       publishZeroCommand();
@@ -752,6 +904,7 @@ private:
       publishZeroCommand();
       return;
     }
+    rebuildLocalObstacleMap(current_pose, false);
 
     if (has_path_ && isGoalReached(current_pose.position)) {
       active_traj_.points.clear();
@@ -806,6 +959,26 @@ private:
       cmd.linear.y *= scale;
       cmd.angular.z *= std::max(0.35, scale);
     }
+    if (!isCommandCollisionFree(current_pose, cmd, cmd_collision_check_time_)) {
+      bool found_safe_scale = false;
+      for (const double scale : {0.5, 0.25, 0.1}) {
+        geometry_msgs::msg::Twist scaled = cmd;
+        scaled.linear.x *= scale;
+        scaled.linear.y *= scale;
+        scaled.angular.z *= scale;
+        if (isCommandCollisionFree(current_pose, scaled, cmd_collision_check_time_)) {
+          cmd = scaled;
+          found_safe_scale = true;
+          break;
+        }
+      }
+      if (!found_safe_scale) {
+        needs_replan_ = true;
+        publishZeroCommand();
+        setStatus("REPLAN");
+        return;
+      }
+    }
     cmd_pub_->publish(cmd);
     last_cmd_ = cmd;
     last_cmd_time_ = now();
@@ -840,6 +1013,9 @@ private:
   {
     Pose3D pose;
     const bool has_pose = getCurrentPose(pose);
+    if (has_pose) {
+      rebuildLocalObstacleMap(pose, false);
+    }
 
     std::ostringstream ss;
     ss << std::fixed << std::setprecision(3);
@@ -877,6 +1053,10 @@ private:
     debug_pub_->publish(msg);
 
     if (debug_visualization_enabled_ && has_pose) {
+      if (!active_traj_.points.empty() && !trajectory_collision_) {
+        publishTrajectory(active_traj_);
+        publishTargetMarker(last_local_target_);
+      }
       publishFootprintMarker(pose);
       publishCmdVelMarker(pose);
       publishCollisionPointsMarker();
@@ -988,6 +1168,17 @@ private:
       target_index = i + 1;
       if (accumulated >= target_distance) {
         break;
+      }
+    }
+
+    if (line_of_sight_tracking_) {
+      while (target_index > nearest_index + 1 &&
+        !isSegmentCollisionFree(current_pose.position, traj.points[target_index]))
+      {
+        --target_index;
+      }
+      if (!isSegmentCollisionFree(current_pose.position, traj.points[target_index])) {
+        return false;
       }
     }
 
@@ -1328,6 +1519,27 @@ private:
       }
     }
     return true;
+  }
+
+  bool isCommandCollisionFree(
+    const Pose3D & current_pose,
+    const geometry_msgs::msg::Twist & cmd,
+    double horizon) const
+  {
+    if (horizon <= 1.0e-6) {
+      return true;
+    }
+    const double cos_yaw = std::cos(current_pose.yaw);
+    const double sin_yaw = std::sin(current_pose.yaw);
+    const Eigen::Vector2d velocity_map(
+      cos_yaw * cmd.linear.x - sin_yaw * cmd.linear.y,
+      sin_yaw * cmd.linear.x + cos_yaw * cmd.linear.y);
+    const Eigen::Vector3d end =
+      current_pose.position + Eigen::Vector3d(
+      velocity_map.x() * horizon,
+      velocity_map.y() * horizon,
+      0.0);
+    return isSegmentCollisionFree(current_pose.position, end);
   }
 
   bool isPoseCollisionFree(const Eigen::Vector3d & pose) const
@@ -1683,9 +1895,18 @@ private:
   {
     if (has_cloud_ && (now() - last_cloud_time_).seconds() > dynamic_obstacle_timeout_) {
       has_cloud_ = false;
-      raw_obstacle_points_.clear();
-      occupied_voxels_.clear();
-      occupied_xy_.clear();
+      dynamic_raw_obstacle_points_.clear();
+      dynamic_occupied_voxels_.clear();
+      dynamic_occupied_xy_.clear();
+      Pose3D pose;
+      if (getCurrentPose(pose)) {
+        rebuildLocalObstacleMap(pose, true);
+      } else {
+        raw_obstacle_points_.clear();
+        occupied_voxels_.clear();
+        occupied_xy_.clear();
+        has_local_map_rebuild_pose_ = false;
+      }
       needs_replan_ = true;
       publishLocalMap();
     }
@@ -1753,7 +1974,7 @@ private:
     marker.color.g = 0.8F;
     marker.color.b = 1.0F;
     marker.color.a = 1.0F;
-    marker.lifetime = durationFromSeconds(0.5);
+    marker.lifetime = durationFromSeconds(1.2);
     for (const auto & point : traj.points) {
       marker.points.push_back(toPointMsg(point));
     }
@@ -1778,7 +1999,7 @@ private:
     marker.color.g = 0.7F;
     marker.color.b = 0.1F;
     marker.color.a = 1.0F;
-    marker.lifetime = durationFromSeconds(0.5);
+    marker.lifetime = durationFromSeconds(1.2);
     target_marker_pub_->publish(marker);
   }
 
@@ -1999,9 +2220,11 @@ private:
   std::string debug_topic_;
   std::string robot_model_;
   std::string additional_pointcloud_topics_;
+  std::string static_pointcloud_topics_param_;
   std::string pointcloud_frame_remaps_;
   std::string pointcloud_map_frame_aliases_param_;
   std::vector<std::string> pointcloud_topics_;
+  std::vector<std::string> static_pointcloud_topics_;
   std::vector<std::string> pointcloud_map_frame_aliases_;
   std::vector<std::string> base_frame_candidates_;
 
@@ -2039,6 +2262,8 @@ private:
   double max_yaw_acc_{1.5};
   double traj_tracking_lookahead_time_{0.5};
   double traj_tracking_lookahead_distance_{0.6};
+  bool line_of_sight_tracking_{true};
+  double cmd_collision_check_time_{0.6};
   double kp_x_{0.8};
   double kp_y_{0.8};
   double kp_yaw_{1.2};
@@ -2065,12 +2290,14 @@ private:
   double obstacle_stop_distance_{0.35};
   bool debug_visualization_enabled_{true};
   double footprint_height_{0.55};
+  double static_map_update_distance_{0.25};
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
 
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr global_path_sub_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr> pointcloud_subs_;
+  std::vector<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr> static_pointcloud_subs_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr trajectory_pub_;
@@ -2098,6 +2325,13 @@ private:
   nav_msgs::msg::Odometry last_odom_;
   rclcpp::Time last_cloud_time_{0, 0, RCL_ROS_TIME};
 
+  std::vector<Eigen::Vector3d> static_map_points_;
+  bool has_static_map_{false};
+  bool has_local_map_rebuild_pose_{false};
+  Eigen::Vector3d last_local_map_rebuild_pose_{Eigen::Vector3d::Zero()};
+  std::vector<Eigen::Vector3d> dynamic_raw_obstacle_points_;
+  std::unordered_set<VoxelKey, VoxelKeyHash> dynamic_occupied_voxels_;
+  std::unordered_set<GridKey, GridKeyHash> dynamic_occupied_xy_;
   std::vector<Eigen::Vector3d> raw_obstacle_points_;
   std::vector<Eigen::Vector3d> last_collision_points_;
   std::vector<Eigen::Vector3d> last_candidate_trajectory_points_;

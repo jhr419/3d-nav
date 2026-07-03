@@ -3,10 +3,22 @@
   <arg name="rviz" default="true"/>
   <arg name="algorithm" default="astar"/>
   <arg name="system_config" default="$(find-pkg-share nav3d_bringup)/config/nav3d_system.yaml"/>
+  <arg name="offline_test" default="false"/>
+  <arg name="cleanup_stale_goal_marker" default="true"/>
+  <arg name="offline_start_x" default="-1.5"/>
+  <arg name="offline_start_y" default="3.2"/>
+  <arg name="offline_start_z" default="0.0"/>
+  <arg name="offline_start_yaw" default="0.0"/>
   <include file="$(find-pkg-share nav3d_bringup)/launch/global_planning_impl.launch.py">
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
     <arg name="launch_rviz" value="$(var rviz)"/>
     <arg name="algorithm" value="$(var algorithm)"/>
     <arg name="system_config" value="$(var system_config)"/>
+    <arg name="offline_test" value="$(var offline_test)"/>
+    <arg name="cleanup_stale_goal_marker" value="$(var cleanup_stale_goal_marker)"/>
+    <arg name="offline_start_x" value="$(var offline_start_x)"/>
+    <arg name="offline_start_y" value="$(var offline_start_y)"/>
+    <arg name="offline_start_z" value="$(var offline_start_z)"/>
+    <arg name="offline_start_yaw" value="$(var offline_start_yaw)"/>
   </include>
 </launch>

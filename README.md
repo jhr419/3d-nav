@@ -367,6 +367,14 @@ ros2 launch 3dnav_bringup global_planning.launch algorithm:=jie_octomap
 ros2 launch 3dnav_bringup global_planning.launch algorithm:=astar
 ```
 
+单独测试全局规划且没有定位 TF 时：
+
+```bash
+ros2 launch 3dnav_bringup global_planning.launch offline_test:=true
+```
+
+`offline_test:=true` 会发布默认 `map -> base_link` 静态起点 TF，可用 `offline_start_x/y/z/yaw` 覆盖。
+
 ### 6. 局部规划
 
 ```bash
@@ -448,6 +456,8 @@ localization_rviz2: 定位、ICP、地图/点云显示
 planning_rviz2: A* 路径规划、/global_points、/tomogram、起终点 marker、/planned_path
 ```
 
+设置初始位姿后，在 `planning_rviz2` 中选择顶部工具栏的 `Interact`，拖动终点球旁边的坐标轴即可更新目标位置；需要上楼梯或跨楼层时，用蓝色 Z 轴控制高度。
+
 如果只想看算法链路，不接管机器人速度桥：
 
 ```bash
@@ -468,6 +478,24 @@ robot_api:=false
 start_livox_driver:=false
 start_fastlio:=false
 require_fresh_cloud:=false
+```
+
+离线模式还会发布一个静态 `map -> base_link`，供 A* 和 EGO local 获取当前机器人位姿。默认起点为：
+
+```text
+offline_start_x: -1.5
+offline_start_y: 3.2
+offline_start_z: 0.0
+offline_start_yaw: 0.0
+```
+
+需要换起点时可覆盖：
+
+```bash
+ros2 launch 3dnav_bringup navigation.launch offline_test:=true \
+  offline_start_x:=-1.5 \
+  offline_start_y:=3.2 \
+  offline_start_z:=0.0
 ```
 
 如果外部已经启动 FAST-LIO/Livox：

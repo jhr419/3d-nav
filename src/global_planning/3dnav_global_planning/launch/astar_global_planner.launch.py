@@ -22,6 +22,11 @@ def generate_launch_description():
         "rviz",
         "pct_global_planner.rviz",
     )
+    default_goal_marker_config_file = os.path.join(
+        pct_share,
+        "config",
+        "pct_global_planner.yaml",
+    )
 
     return LaunchDescription(
         [
@@ -65,6 +70,11 @@ def generate_launch_description():
                 "launch_goal_marker",
                 default_value="true",
                 description="Launch the same interactive 3D goal marker used by PCT.",
+            ),
+            DeclareLaunchArgument(
+                "goal_marker_config_file",
+                default_value=default_goal_marker_config_file,
+                description="YAML parameter file for pct_goal_marker_node.",
             ),
             DeclareLaunchArgument(
                 "launch_rviz",
@@ -129,6 +139,7 @@ def generate_launch_description():
                 name="pct_start_goal_marker",
                 output="screen",
                 parameters=[
+                    LaunchConfiguration("goal_marker_config_file"),
                     {
                         "use_sim_time": ParameterValue(
                             LaunchConfiguration("use_sim_time"),

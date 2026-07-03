@@ -68,6 +68,7 @@ class PCTGoalMarkerNode(Node):
         self.declare_parameter("server_namespace", "pct_start_goal_marker")
         self.declare_parameter("marker_scale", 0.8)
         self.declare_parameter("sphere_radius", 0.175)
+        self.declare_parameter("direct_sphere_drag", False)
         self.declare_parameter("publish_on_feedback", True)
         self.declare_parameter("publish_initial_pose", False)
         self.declare_parameter("publish_marker_array", True)
@@ -85,6 +86,7 @@ class PCTGoalMarkerNode(Node):
         self.server_namespace = str(self.get_parameter("server_namespace").value)
         self.marker_scale = float(self.get_parameter("marker_scale").value)
         self.sphere_radius = float(self.get_parameter("sphere_radius").value)
+        self.direct_sphere_drag = as_bool(self.get_parameter("direct_sphere_drag").value)
         self.publish_on_feedback = as_bool(self.get_parameter("publish_on_feedback").value)
         self.publish_initial_pose = as_bool(self.get_parameter("publish_initial_pose").value)
         self.publish_marker_array_enabled = as_bool(self.get_parameter("publish_marker_array").value)
@@ -103,6 +105,7 @@ class PCTGoalMarkerNode(Node):
         if self.goal_pose_alias_topic and self.goal_pose_alias_topic != self.goal_pose_topic:
             self.goal_alias_pub = self.create_publisher(PoseStamped, self.goal_pose_alias_topic, latched_qos())
         self.marker_array_pub = self.create_publisher(MarkerArray, self.marker_array_topic, latched_qos())
+        self._last_feedback_log_time = 0.0
 
         self.server = InteractiveMarkerServer(self, self.server_namespace)
         self.menu_handler = MenuHandler()
@@ -127,14 +130,24 @@ class PCTGoalMarkerNode(Node):
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.header.frame_id = self.frame_id
         marker.name = "pct_goal_pose"
-        marker.description = "Goal Pose"
+        marker.description = (
+            "Goal Pose: drag axes to move"
+            if not self.direct_sphere_drag
+            else "Goal Pose: drag sphere in XY, use Z axis for height"
+        )
         marker.scale = self.marker_scale
         marker.pose = copy.deepcopy(self.goal_pose)
 
         sphere_control = InteractiveMarkerControl()
-        sphere_control.name = "goal_sphere_menu"
+        sphere_control.name = "goal_sphere_drag_xy" if self.direct_sphere_drag else "goal_sphere_menu"
         sphere_control.always_visible = True
-        sphere_control.interaction_mode = InteractiveMarkerControl.MENU
+        if self.direct_sphere_drag:
+            sphere_control.orientation_mode = InteractiveMarkerControl.FIXED
+            sphere_control.orientation.w = math.sqrt(0.5)
+            sphere_control.orientation.y = -math.sqrt(0.5)
+            sphere_control.interaction_mode = InteractiveMarkerControl.MOVE_PLANE
+        else:
+            sphere_control.interaction_mode = InteractiveMarkerControl.MENU
         sphere_control.markers.append(self._make_goal_sphere())
         marker.controls.append(sphere_control)
 
@@ -154,12 +167,15 @@ class PCTGoalMarkerNode(Node):
         return marker
 
     def _add_axis_controls(self, marker: InteractiveMarker) -> None:
+        # RViz MOVE_AXIS uses the control's local X axis. These unit
+        # quaternions match the standard interactive_marker 6-DOF mapping.
+        s = math.sqrt(0.5)
         axes = (
-            ("x", 1.0, 0.0, 0.0),
-            ("y", 0.0, 1.0, 0.0),
-            ("z", 0.0, 0.0, 1.0),
+            ("x", s, 0.0, 0.0, s),
+            ("z", 0.0, s, 0.0, s),
+            ("y", 0.0, 0.0, s, s),
         )
-        for axis_name, x, y, z in axes:
+        for axis_name, x, y, z, w in axes:
             marker.controls.append(
                 self._make_axis_control(
                     name=f"rotate_{axis_name}",
@@ -167,6 +183,7 @@ class PCTGoalMarkerNode(Node):
                     x=x,
                     y=y,
                     z=z,
+                    w=w,
                 )
             )
             marker.controls.append(
@@ -176,14 +193,22 @@ class PCTGoalMarkerNode(Node):
                     x=x,
                     y=y,
                     z=z,
+                    w=w,
                 )
             )
 
     @staticmethod
-    def _make_axis_control(name: str, interaction_mode: int, x: float, y: float, z: float):
+    def _make_axis_control(
+        name: str,
+        interaction_mode: int,
+        x: float,
+        y: float,
+        z: float,
+        w: float,
+    ):
         control = InteractiveMarkerControl()
         control.name = name
-        control.orientation.w = 1.0
+        control.orientation.w = w
         control.orientation.x = x
         control.orientation.y = y
         control.orientation.z = z
@@ -205,6 +230,21 @@ class PCTGoalMarkerNode(Node):
 
         if feedback.event_type == InteractiveMarkerFeedback.POSE_UPDATE and self.publish_on_feedback:
             self.publish_goal(log_level="debug")
+        elif feedback.event_type == InteractiveMarkerFeedback.MOUSE_UP:
+            self._log_feedback_event("mouse up", feedback.pose)
+            self.publish_goal()
+        elif feedback.event_type == InteractiveMarkerFeedback.MOUSE_DOWN:
+            self._log_feedback_event("mouse down", feedback.pose)
+
+    def _log_feedback_event(self, event_name: str, pose: Pose) -> None:
+        now = self.get_clock().now().nanoseconds / 1e9
+        if now - self._last_feedback_log_time < 0.25:
+            return
+        self._last_feedback_log_time = now
+        self.get_logger().info(
+            "Goal marker %s: x=%.3f y=%.3f z=%.3f"
+            % (event_name, pose.position.x, pose.position.y, pose.position.z)
+        )
 
     def _publish_goal_cb(self, feedback: InteractiveMarkerFeedback) -> None:
         self.goal_pose = copy.deepcopy(feedback.pose)

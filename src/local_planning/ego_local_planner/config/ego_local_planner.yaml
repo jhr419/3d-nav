@@ -9,6 +9,7 @@ ego_local_planner_node:
     global_path_topic: "/planned_path"
     pointcloud_topic: "/livox/lidar"
     additional_pointcloud_topics: "/cloud_registered,/cloud_registered_body,/mid360"
+    static_pointcloud_topics: "/global_points"
     pointcloud_frame_remaps: "body:livox_frame"
     pointcloud_map_frame_aliases: "camera_init"
     require_fresh_cloud: true
@@ -34,8 +35,8 @@ ego_local_planner_node:
     local_map_radius: 5.0
     local_map_height: 1.5
     voxel_resolution: 0.15
-    inflation_radius: 0.25
-    robot_clear_radius: 0.30
+    inflation_radius: 0.35
+    robot_clear_radius: 0.35
     astar_search_margin: 1.0
 
     remove_ground_points: true
@@ -45,8 +46,8 @@ ego_local_planner_node:
     self_filter_radius: 0.45
     dynamic_obstacle_timeout: 0.5
 
-    local_target_lookahead: 2.0
-    min_local_target_lookahead: 0.6
+    local_target_lookahead: 1.4
+    min_local_target_lookahead: 0.4
     goal_reached_tolerance: 0.35
     goal_reached_z_tolerance: 0.45
     z_following_enabled: true
@@ -65,7 +66,9 @@ ego_local_planner_node:
     max_yaw_acc: 1.5
 
     traj_tracking_lookahead_time: 0.2
-    traj_tracking_lookahead_distance: 0.6
+    traj_tracking_lookahead_distance: 0.35
+    line_of_sight_tracking: true
+    cmd_collision_check_time: 0.6
     kp_x: 0.8
     kp_y: 0.8
     kp_yaw: 1.2
@@ -83,14 +86,15 @@ ego_local_planner_node:
 
     use_global_path_risk: true
     allow_deviation_from_global_path: true
-    max_deviation_from_global_path: 0.8
+    max_deviation_from_global_path: 0.5
     prefer_high_clearance_tracking: true
     min_local_clearance: 0.35
-    preferred_local_clearance: 0.65
-    local_clearance_weight: 2.0
+    preferred_local_clearance: 0.75
+    local_clearance_weight: 3.0
     path_tracking_weight: 1.0
     slow_down_near_obstacle: true
     obstacle_slow_distance: 0.8
     obstacle_stop_distance: 0.35
     debug_visualization_enabled: true
     footprint_height: 0.55
+    static_map_update_distance: 0.25

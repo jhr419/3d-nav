@@ -143,6 +143,7 @@ pct_start_goal_marker:
     server_namespace: "pct_start_goal_marker"
     marker_scale: 0.8
     sphere_radius: 0.175
+    direct_sphere_drag: false
     publish_on_feedback: true
     publish_initial_pose: false
     publish_marker_array: true

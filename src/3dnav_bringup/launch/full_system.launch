@@ -8,6 +8,10 @@
   <arg name="global_planner_algorithm" default=""/>
   <arg name="require_fresh_cloud" default="true"/>
   <arg name="offline_test" default="false"/>
+  <arg name="offline_start_x" default="-1.5"/>
+  <arg name="offline_start_y" default="3.2"/>
+  <arg name="offline_start_z" default="0.0"/>
+  <arg name="offline_start_yaw" default="0.0"/>
   <include file="$(find-pkg-share nav3d_bringup)/launch/full_system_impl.launch.py">
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
     <arg name="mapping" value="$(var mapping)"/>
@@ -18,5 +22,9 @@
     <arg name="global_planner_algorithm" value="$(var global_planner_algorithm)"/>
     <arg name="require_fresh_cloud" value="$(var require_fresh_cloud)"/>
     <arg name="offline_test" value="$(var offline_test)"/>
+    <arg name="offline_start_x" value="$(var offline_start_x)"/>
+    <arg name="offline_start_y" value="$(var offline_start_y)"/>
+    <arg name="offline_start_z" value="$(var offline_start_z)"/>
+    <arg name="offline_start_yaw" value="$(var offline_start_yaw)"/>
   </include>
 </launch>
