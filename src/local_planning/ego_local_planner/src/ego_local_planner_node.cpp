@@ -3,8 +3,13 @@
 #include <cmath>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iomanip>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -19,6 +24,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <builtin_interfaces/msg/duration.hpp>
+#include <builtin_interfaces/msg/time.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -123,6 +129,67 @@ std::string remapFrameName(const std::string & frame, const std::string & remaps
   return frame;
 }
 
+std::string lowerString(const std::string & value)
+{
+  std::string out = value;
+  std::transform(out.begin(), out.end(), out.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return out;
+}
+
+bool isAbsolutePath(const std::string & path)
+{
+  return !path.empty() && path.front() == '/';
+}
+
+bool isValidWorkspaceRoot(const std::filesystem::path & path)
+{
+  return std::filesystem::is_directory(path / "src") &&
+         std::filesystem::is_directory(path / "maps");
+}
+
+std::filesystem::path findWorkspaceRoot()
+{
+  const char * env_value = std::getenv("NAV3D_WS");
+  if (env_value != nullptr && *env_value != '\0') {
+    const std::filesystem::path env_path(env_value);
+    if (isValidWorkspaceRoot(env_path)) {
+      return env_path;
+    }
+  }
+
+  std::filesystem::path cwd = std::filesystem::current_path();
+  for (auto candidate = cwd; !candidate.empty(); candidate = candidate.parent_path()) {
+    if (isValidWorkspaceRoot(candidate)) {
+      return candidate;
+    }
+    if (candidate == candidate.root_path()) {
+      break;
+    }
+  }
+
+  return cwd;
+}
+
+std::string resolveProjectPath(const std::string & relative_path)
+{
+  const std::string path = trim(relative_path);
+  if (path.empty()) {
+    return "";
+  }
+  if (isAbsolutePath(path)) {
+    return path;
+  }
+  if (path.front() == '~') {
+    const char * home = std::getenv("HOME");
+    if (home != nullptr) {
+      return (std::filesystem::path(home) / path.substr(1)).lexically_normal().string();
+    }
+  }
+  return (findWorkspaceRoot() / path).lexically_normal().string();
+}
+
 bool containsName(const std::vector<std::string> & names, const std::string & value)
 {
   return !value.empty() && std::find(names.begin(), names.end(), value) != names.end();
@@ -167,6 +234,36 @@ rclcpp::Duration periodFromFrequency(double frequency)
   return rclcpp::Duration::from_seconds(1.0 / frequency);
 }
 
+double distance3d(const Eigen::Vector3d & a, const Eigen::Vector3d & b)
+{
+  return (a - b).norm();
+}
+
+double pathLength(const std::vector<Eigen::Vector3d> & points)
+{
+  double length = 0.0;
+  for (std::size_t i = 1; i < points.size(); ++i) {
+    length += distance3d(points[i - 1], points[i]);
+  }
+  return length;
+}
+
+std::string formatVector3(const Eigen::Vector3d & point)
+{
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(3)
+     << "(" << point.x() << "," << point.y() << "," << point.z() << ")";
+  return ss.str();
+}
+
+std::string formatTwist2D(const geometry_msgs::msg::Twist & cmd)
+{
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(3)
+     << "(" << cmd.linear.x << "," << cmd.linear.y << "," << cmd.angular.z << ")";
+  return ss.str();
+}
+
 }  // namespace
 
 struct Pose3D
@@ -180,6 +277,452 @@ struct Trajectory
   std::vector<Eigen::Vector3d> points;
   rclcpp::Time stamp;
   bool collision_free{false};
+};
+
+struct LocalPlannerLoggingConfig
+{
+  bool enabled{true};
+  std::string log_dir{"debug/logs/local_planner"};
+  std::string log_file_prefix{"local_planner"};
+  std::string log_format{"text"};
+  bool also_log_to_console{false};
+  bool periodic_summary_enabled{true};
+  double summary_log_interval_sec{1.0};
+  double repeated_warning_throttle_sec{2.0};
+  double pose_change_log_threshold{0.2};
+  double target_change_log_threshold{0.3};
+  double cmd_change_log_threshold{0.05};
+  double obstacle_distance_change_log_threshold{0.2};
+  double flush_interval_sec{2.0};
+  bool flush_on_error{true};
+  double max_log_file_size_mb{50.0};
+  int max_log_files{20};
+};
+
+class LocalPlannerLogger
+{
+public:
+  bool initialize(const LocalPlannerLoggingConfig & config, std::string & error_message)
+  {
+    config_ = config;
+    enabled_ = config.enabled;
+    if (!enabled_) {
+      return true;
+    }
+
+    const std::string trimmed_dir = trim(config_.log_dir);
+    if (trimmed_dir.empty()) {
+      error_message = "local planner log_dir is empty";
+      enabled_ = false;
+      return false;
+    }
+    if (isAbsolutePath(trimmed_dir) || trimmed_dir.front() == '~') {
+      error_message = "local planner log_dir must be relative to the project root: " + trimmed_dir;
+      enabled_ = false;
+      return false;
+    }
+
+    format_ = lowerString(trim(config_.log_format));
+    if (format_ != "text" && format_ != "csv" && format_ != "jsonl") {
+      format_ = "text";
+    }
+    extension_ = format_ == "csv" ? ".csv" : (format_ == "jsonl" ? ".jsonl" : ".log");
+    directory_ = std::filesystem::path(resolveProjectPath(trimmed_dir));
+
+    std::error_code ec;
+    std::filesystem::create_directories(directory_, ec);
+    if (ec) {
+      error_message = "failed to create local planner log directory '" + directory_.string() +
+        "': " + ec.message();
+      enabled_ = false;
+      return false;
+    }
+
+    base_filename_ = sanitizedPrefix(config_.log_file_prefix) + "_" + fileTimestamp();
+    current_part_ = 1;
+    if (!openCurrentFile(error_message)) {
+      enabled_ = false;
+      return false;
+    }
+
+    const auto removed = pruneOldLogs();
+    writeHeaderIfNeeded();
+    for (const auto & path : removed) {
+      logInfo("LOG_ROTATION", "removed old log file: " + path.string());
+    }
+    logInfo("STARTUP", "local planner logger initialized file=" + current_file_path_.string());
+    return true;
+  }
+
+  ~LocalPlannerLogger()
+  {
+    flush();
+    if (stream_.is_open()) {
+      stream_.close();
+    }
+  }
+
+  bool isEnabled() const
+  {
+    return enabled_ && stream_.is_open();
+  }
+
+  std::string activeFilePath() const
+  {
+    return current_file_path_.string();
+  }
+
+  void logStartup(const std::string & message)
+  {
+    logInfo("STARTUP", message);
+  }
+
+  void logStateChange(
+    const std::string & from,
+    const std::string & to,
+    const std::string & reason)
+  {
+    std::ostringstream ss;
+    ss << "from=" << from << " to=" << to;
+    if (!reason.empty()) {
+      ss << " reason=" << reason;
+    }
+    logInfo("STATE", ss.str());
+  }
+
+  void logPathReceived(const std::string & message)
+  {
+    logInfo("PATH", message);
+  }
+
+  void logCloudStatus(const std::string & message)
+  {
+    logInfo("CLOUD", message);
+  }
+
+  void logReplanTriggered(const std::string & message)
+  {
+    logInfo("REPLAN", message);
+  }
+
+  void logPlanResult(const std::string & event, const std::string & message)
+  {
+    logInfo(event, message);
+  }
+
+  void logCmdVelChanged(const std::string & message)
+  {
+    logInfo("CMD_VEL", message);
+  }
+
+  void logSummary(const std::string & message)
+  {
+    logInfo("SUMMARY", message);
+  }
+
+  bool logWarningThrottled(
+    const std::string & key,
+    const std::string & event,
+    const std::string & message,
+    double throttle_sec)
+  {
+    if (!isEnabled()) {
+      return false;
+    }
+    const auto now_time = std::chrono::steady_clock::now();
+    const auto iter = throttled_warning_times_.find(key);
+    if (iter != throttled_warning_times_.end()) {
+      const double elapsed =
+        std::chrono::duration<double>(now_time - iter->second).count();
+      if (elapsed < std::max(0.0, throttle_sec)) {
+        return false;
+      }
+    }
+    throttled_warning_times_[key] = now_time;
+    logWarn(event, message);
+    return true;
+  }
+
+  void logInfo(const std::string & event, const std::string & message)
+  {
+    write("INFO", event, message);
+  }
+
+  void logWarn(const std::string & event, const std::string & message)
+  {
+    write("WARN", event, message);
+  }
+
+  void logError(const std::string & event, const std::string & message)
+  {
+    write("ERROR", event, message);
+  }
+
+  void flush()
+  {
+    if (stream_.is_open()) {
+      stream_.flush();
+      last_flush_time_ = std::chrono::steady_clock::now();
+    }
+  }
+
+private:
+  std::string sanitizedPrefix(const std::string & prefix) const
+  {
+    std::string out = trim(prefix);
+    if (out.empty()) {
+      out = "local_planner";
+    }
+    for (char & ch : out) {
+      if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-') {
+        ch = '_';
+      }
+    }
+    return out;
+  }
+
+  std::string fileTimestamp() const
+  {
+    const auto now_time = std::chrono::system_clock::now();
+    const std::time_t time = std::chrono::system_clock::to_time_t(now_time);
+    std::tm tm{};
+    localtime_r(&time, &tm);
+    std::ostringstream ss;
+    ss << std::put_time(&tm, "%Y-%m-%d_%H-%M-%S");
+    return ss.str();
+  }
+
+  std::string lineTimestamp() const
+  {
+    const auto now_time = std::chrono::system_clock::now();
+    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+      now_time.time_since_epoch()) % 1000;
+    const std::time_t time = std::chrono::system_clock::to_time_t(now_time);
+    std::tm tm{};
+    localtime_r(&time, &tm);
+    std::ostringstream ss;
+    ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S")
+       << "." << std::setw(3) << std::setfill('0') << milliseconds.count();
+    return ss.str();
+  }
+
+  std::filesystem::path filePathForPart(int part) const
+  {
+    std::ostringstream filename;
+    filename << base_filename_;
+    if (part > 1) {
+      filename << "_part" << part;
+    }
+    filename << extension_;
+    return directory_ / filename.str();
+  }
+
+  bool openCurrentFile(std::string & error_message)
+  {
+    current_file_path_ = filePathForPart(current_part_);
+    stream_.open(current_file_path_, std::ios::out | std::ios::app);
+    if (!stream_.is_open()) {
+      error_message = "failed to open local planner log file '" + current_file_path_.string() + "'";
+      return false;
+    }
+    last_flush_time_ = std::chrono::steady_clock::now();
+    return true;
+  }
+
+  void writeHeaderIfNeeded()
+  {
+    if (format_ == "csv" && stream_.tellp() == 0) {
+      stream_ << "time,level,event,message\n";
+      flush();
+    }
+  }
+
+  std::vector<std::filesystem::path> pruneOldLogs()
+  {
+    std::vector<std::filesystem::directory_entry> entries;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(directory_, ec)) {
+      return {};
+    }
+
+    for (const auto & entry : std::filesystem::directory_iterator(directory_, ec)) {
+      if (ec || !entry.is_regular_file()) {
+        continue;
+      }
+      const std::string filename = entry.path().filename().string();
+      if (filename.rfind(sanitizedPrefix(config_.log_file_prefix) + "_", 0) != 0) {
+        continue;
+      }
+      const std::string ext = entry.path().extension().string();
+      if (ext == ".log" || ext == ".csv" || ext == ".jsonl") {
+        entries.push_back(entry);
+      }
+    }
+
+    std::sort(entries.begin(), entries.end(), [](const auto & a, const auto & b) {
+      std::error_code ec_a;
+      std::error_code ec_b;
+      return std::filesystem::last_write_time(a.path(), ec_a) <
+             std::filesystem::last_write_time(b.path(), ec_b);
+    });
+
+    std::vector<std::filesystem::path> removed;
+    const int max_files = std::max(1, config_.max_log_files);
+    while (static_cast<int>(entries.size()) > max_files) {
+      const auto path = entries.front().path();
+      entries.erase(entries.begin());
+      std::filesystem::remove(path, ec);
+      if (!ec) {
+        removed.push_back(path);
+      }
+    }
+    return removed;
+  }
+
+  std::string escapeCsv(const std::string & value) const
+  {
+    std::string out = "\"";
+    for (const char ch : value) {
+      if (ch == '"') {
+        out += "\"\"";
+      } else {
+        out += ch;
+      }
+    }
+    out += "\"";
+    return out;
+  }
+
+  std::string escapeJson(const std::string & value) const
+  {
+    std::string out;
+    for (const char ch : value) {
+      switch (ch) {
+        case '\\':
+          out += "\\\\";
+          break;
+        case '"':
+          out += "\\\"";
+          break;
+        case '\n':
+          out += "\\n";
+          break;
+        case '\r':
+          out += "\\r";
+          break;
+        case '\t':
+          out += "\\t";
+          break;
+        default:
+          out += ch;
+          break;
+      }
+    }
+    return out;
+  }
+
+  std::string formatLine(
+    const std::string & time,
+    const std::string & level,
+    const std::string & event,
+    const std::string & message) const
+  {
+    if (format_ == "csv") {
+      return escapeCsv(time) + "," + escapeCsv(level) + "," + escapeCsv(event) + "," +
+             escapeCsv(message);
+    }
+    if (format_ == "jsonl") {
+      return "{\"time\":\"" + escapeJson(time) + "\",\"level\":\"" + escapeJson(level) +
+             "\",\"event\":\"" + escapeJson(event) + "\",\"message\":\"" +
+             escapeJson(message) + "\"}";
+    }
+    return "[" + time + "] [" + level + "] [" + event + "] " + message;
+  }
+
+  std::uintmax_t maxFileSizeBytes() const
+  {
+    const double mb = std::max(1.0, config_.max_log_file_size_mb);
+    return static_cast<std::uintmax_t>(mb * 1024.0 * 1024.0);
+  }
+
+  void rotateIfNeeded()
+  {
+    if (!stream_.is_open()) {
+      return;
+    }
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(current_file_path_, ec);
+    if (ec || size < maxFileSizeBytes()) {
+      return;
+    }
+
+    const std::filesystem::path previous = current_file_path_;
+    stream_.flush();
+    stream_.close();
+    ++current_part_;
+    std::string error_message;
+    if (!openCurrentFile(error_message)) {
+      enabled_ = false;
+      if (config_.also_log_to_console) {
+        std::cerr << "[ERROR] [LOG_ROTATION] " << error_message << std::endl;
+      }
+      return;
+    }
+    writeHeaderIfNeeded();
+    const auto removed = pruneOldLogs();
+    logWarn("LOG_ROTATION", "rotated local planner log from=" + previous.string() +
+      " to=" + current_file_path_.string());
+    for (const auto & path : removed) {
+      logInfo("LOG_ROTATION", "removed old log file: " + path.string());
+    }
+  }
+
+  void write(
+    const std::string & level,
+    const std::string & event,
+    const std::string & message)
+  {
+    if (!isEnabled()) {
+      return;
+    }
+
+    rotateIfNeeded();
+    if (!isEnabled()) {
+      return;
+    }
+
+    const std::string time = lineTimestamp();
+    const std::string line = formatLine(time, level, event, message);
+    stream_ << line << "\n";
+
+    if (config_.also_log_to_console) {
+      if (level == "ERROR" || level == "WARN") {
+        std::cerr << line << std::endl;
+      } else {
+        std::cout << line << std::endl;
+      }
+    }
+
+    const auto now_time = std::chrono::steady_clock::now();
+    const bool flush_due =
+      std::chrono::duration<double>(now_time - last_flush_time_).count() >=
+      std::max(0.0, config_.flush_interval_sec);
+    if (flush_due || (level == "ERROR" && config_.flush_on_error)) {
+      flush();
+    }
+  }
+
+  LocalPlannerLoggingConfig config_;
+  bool enabled_{false};
+  std::string format_{"text"};
+  std::string extension_{".log"};
+  std::string base_filename_;
+  std::filesystem::path directory_;
+  std::filesystem::path current_file_path_;
+  int current_part_{1};
+  std::ofstream stream_;
+  std::chrono::steady_clock::time_point last_flush_time_{};
+  std::unordered_map<std::string, std::chrono::steady_clock::time_point> throttled_warning_times_;
 };
 
 struct VoxelKey
@@ -246,6 +789,7 @@ public:
   {
     declareParameters();
     readParameters();
+    initializeLogging();
 
     tf_buffer_.setCreateTimerInterface(
       std::make_shared<tf2_ros::CreateTimerROS>(
@@ -308,7 +852,8 @@ public:
       std::bind(&EgoLocalPlannerNode::collisionCallback, this));
     debug_timer_ = create_wall_timer(500ms, std::bind(&EgoLocalPlannerNode::debugCallback, this));
 
-    setStatus("WAITING_FOR_PATH");
+    setStatus("WAITING_FOR_PATH", "startup");
+    logStartupInfo();
     RCLCPP_INFO(
       get_logger(),
       "EGO local planner adapter ready: path=%s clouds=%s cmd=%s",
@@ -326,6 +871,7 @@ private:
   void declareParameters()
   {
     declare_parameter<std::string>("map_frame", "map");
+    declare_parameter<std::string>("config_file", "");
     declare_parameter<std::string>("odom_frame", "odom");
     declare_parameter<std::string>("base_frame", "base_link");
     declare_parameter<std::string>("base_frame_candidates", "base_link,base_footprint,odin1_base_link");
@@ -426,11 +972,30 @@ private:
     declare_parameter<bool>("debug_visualization_enabled", true);
     declare_parameter<double>("footprint_height", 0.55);
     declare_parameter<double>("static_map_update_distance", 0.25);
+
+    declare_parameter<bool>("local_planner_logging.enabled", true);
+    declare_parameter<std::string>("local_planner_logging.log_dir", "debug/logs/local_planner");
+    declare_parameter<std::string>("local_planner_logging.log_file_prefix", "local_planner");
+    declare_parameter<std::string>("local_planner_logging.log_format", "text");
+    declare_parameter<bool>("local_planner_logging.also_log_to_console", false);
+    declare_parameter<bool>("local_planner_logging.periodic_summary_enabled", true);
+    declare_parameter<double>("local_planner_logging.summary_log_interval_sec", 1.0);
+    declare_parameter<double>("local_planner_logging.repeated_warning_throttle_sec", 2.0);
+    declare_parameter<double>("local_planner_logging.pose_change_log_threshold", 0.2);
+    declare_parameter<double>("local_planner_logging.target_change_log_threshold", 0.3);
+    declare_parameter<double>("local_planner_logging.cmd_change_log_threshold", 0.05);
+    declare_parameter<double>(
+      "local_planner_logging.obstacle_distance_change_log_threshold", 0.2);
+    declare_parameter<double>("local_planner_logging.flush_interval_sec", 2.0);
+    declare_parameter<bool>("local_planner_logging.flush_on_error", true);
+    declare_parameter<double>("local_planner_logging.max_log_file_size_mb", 50.0);
+    declare_parameter<int>("local_planner_logging.max_log_files", 20);
   }
 
   void readParameters()
   {
     map_frame_ = get_parameter("map_frame").as_string();
+    config_file_ = get_parameter("config_file").as_string();
     odom_frame_ = get_parameter("odom_frame").as_string();
     base_frame_ = get_parameter("base_frame").as_string();
     base_frame_candidates_param_ = get_parameter("base_frame_candidates").as_string();
@@ -573,6 +1138,80 @@ private:
     footprint_height_ = std::max(0.05, get_parameter("footprint_height").as_double());
     static_map_update_distance_ =
       std::max(0.05, get_parameter("static_map_update_distance").as_double());
+
+    logging_config_.enabled = get_parameter("local_planner_logging.enabled").as_bool();
+    logging_config_.log_dir = get_parameter("local_planner_logging.log_dir").as_string();
+    logging_config_.log_file_prefix =
+      get_parameter("local_planner_logging.log_file_prefix").as_string();
+    logging_config_.log_format = get_parameter("local_planner_logging.log_format").as_string();
+    logging_config_.also_log_to_console =
+      get_parameter("local_planner_logging.also_log_to_console").as_bool();
+    logging_config_.periodic_summary_enabled =
+      get_parameter("local_planner_logging.periodic_summary_enabled").as_bool();
+    logging_config_.summary_log_interval_sec =
+      std::max(0.1, get_parameter("local_planner_logging.summary_log_interval_sec").as_double());
+    logging_config_.repeated_warning_throttle_sec =
+      std::max(0.0, get_parameter("local_planner_logging.repeated_warning_throttle_sec").as_double());
+    logging_config_.pose_change_log_threshold =
+      std::max(0.0, get_parameter("local_planner_logging.pose_change_log_threshold").as_double());
+    logging_config_.target_change_log_threshold =
+      std::max(0.0, get_parameter("local_planner_logging.target_change_log_threshold").as_double());
+    logging_config_.cmd_change_log_threshold =
+      std::max(0.0, get_parameter("local_planner_logging.cmd_change_log_threshold").as_double());
+    logging_config_.obstacle_distance_change_log_threshold = std::max(
+      0.0,
+      get_parameter("local_planner_logging.obstacle_distance_change_log_threshold").as_double());
+    logging_config_.flush_interval_sec =
+      std::max(0.0, get_parameter("local_planner_logging.flush_interval_sec").as_double());
+    logging_config_.flush_on_error =
+      get_parameter("local_planner_logging.flush_on_error").as_bool();
+    logging_config_.max_log_file_size_mb =
+      std::max(1.0, get_parameter("local_planner_logging.max_log_file_size_mb").as_double());
+    logging_config_.max_log_files =
+      std::max(1, static_cast<int>(get_parameter("local_planner_logging.max_log_files").as_int()));
+  }
+
+  void initializeLogging()
+  {
+    std::string error_message;
+    if (!local_logger_.initialize(logging_config_, error_message)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Failed to initialize local planner file logging: %s",
+        error_message.c_str());
+      return;
+    }
+    if (local_logger_.isEnabled()) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Local planner file logging enabled: %s",
+        local_logger_.activeFilePath().c_str());
+    }
+  }
+
+  void logStartupInfo()
+  {
+    if (!local_logger_.isEnabled()) {
+      return;
+    }
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(3);
+    ss << "local planner started";
+    ss << " node_name=" << get_name();
+    ss << " config_file=" << (config_file_.empty() ? "unknown" : config_file_);
+    ss << " map_frame=" << map_frame_;
+    ss << " odom_frame=" << odom_frame_;
+    ss << " base_frame=" << base_frame_;
+    ss << " pointcloud_topic=" << joinTopicList(pointcloud_topics_);
+    ss << " global_path_topic=" << global_path_topic_;
+    ss << " cmd_vel_topic=" << cmd_vel_topic_;
+    ss << " robot_model=" << robot_model_;
+    ss << " max_vel_x=" << max_vel_x_;
+    ss << " max_vel_y=" << max_vel_y_;
+    ss << " max_yaw_rate=" << max_yaw_rate_;
+    ss << " local_map_radius=" << local_map_radius_;
+    ss << " inflation_radius=" << inflation_radius_;
+    local_logger_.logStartup(ss.str());
   }
 
   void globalPathCallback(const nav_msgs::msg::Path::SharedPtr msg)
@@ -580,24 +1219,55 @@ private:
     const std::string path_frame = msg->header.frame_id.empty() ? map_frame_ : msg->header.frame_id;
     geometry_msgs::msg::TransformStamped path_to_map;
     const bool transform_path = path_frame != map_frame_;
-    if (transform_path && !lookupTransform(map_frame_, path_frame, path_to_map)) {
+    std::string tf_error;
+    if (transform_path && !lookupTransform(map_frame_, path_frame, path_to_map, &tf_error)) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
         "Cannot transform global path from '%s' to '%s'.",
         path_frame.c_str(), map_frame_.c_str());
+      local_logger_.logWarningThrottled(
+        "global_path_tf",
+        "TF_ERROR",
+        "global path transform failed source_frame=" + path_frame + " target_frame=" +
+        map_frame_ + " exception=\"" + tf_error + "\"",
+        logging_config_.repeated_warning_throttle_sec);
       return;
     }
 
     std::vector<Eigen::Vector3d> path;
     path.reserve(msg->poses.size());
+    bool contains_nan = false;
+    bool has_large_z_jump = false;
+    double max_z_jump = 0.0;
+    std::optional<Eigen::Vector3d> previous_valid_point;
+    double min_z = std::numeric_limits<double>::infinity();
+    double max_z = -std::numeric_limits<double>::infinity();
     for (const auto & pose : msg->poses) {
       Eigen::Vector3d point(
         pose.pose.position.x,
         pose.pose.position.y,
         pose.pose.position.z);
+      if (!std::isfinite(point.x()) || !std::isfinite(point.y()) || !std::isfinite(point.z())) {
+        contains_nan = true;
+        continue;
+      }
       if (transform_path) {
         point = transformPoint(path_to_map, point);
       }
+      if (!std::isfinite(point.x()) || !std::isfinite(point.y()) || !std::isfinite(point.z())) {
+        contains_nan = true;
+        continue;
+      }
+      if (previous_valid_point.has_value()) {
+        const double z_jump = std::abs(point.z() - previous_valid_point->z());
+        max_z_jump = std::max(max_z_jump, z_jump);
+        if (z_jump > std::max(0.05, max_allowed_z_jump_)) {
+          has_large_z_jump = true;
+        }
+      }
+      previous_valid_point = point;
+      min_z = std::min(min_z, point.z());
+      max_z = std::max(max_z, point.z());
       path.push_back(point);
     }
 
@@ -605,12 +1275,53 @@ private:
     global_path_frame_ = map_frame_;
     has_path_ = !global_path_.empty();
     needs_replan_ = true;
+    goal_reached_logged_ = false;
+    has_logged_local_target_ = false;
+
+    if (contains_nan) {
+      local_logger_.logWarn(
+        "PATH",
+        "path contains NaN; invalid poses skipped original_size=" +
+        std::to_string(msg->poses.size()) + " valid_size=" + std::to_string(global_path_.size()));
+    }
+    if (transform_path) {
+      local_logger_.logWarn(
+        "PATH",
+        "wrong frame_id transformed source_frame=" + path_frame + " target_frame=" + map_frame_);
+    }
+    if (has_large_z_jump) {
+      std::ostringstream warn;
+      warn << std::fixed << std::setprecision(3)
+           << "path has large z jump max_z_jump=" << max_z_jump
+           << " threshold=" << max_allowed_z_jump_;
+      local_logger_.logWarn("PATH", warn.str());
+    }
 
     if (has_path_) {
-      setStatus((!require_fresh_cloud_ || has_cloud_) ? "REPLAN" : "WAITING_FOR_CLOUD");
+      std::ostringstream ss;
+      ss << std::fixed << std::setprecision(3);
+      ss << "new global path received";
+      ss << " frame_id=" << path_frame;
+      ss << " stored_frame=" << global_path_frame_;
+      ss << " path_size=" << global_path_.size();
+      ss << " first_point=" << formatVector3(global_path_.front());
+      ss << " last_point=" << formatVector3(global_path_.back());
+      ss << " path_length=" << pathLength(global_path_);
+      ss << " min_z=" << min_z;
+      ss << " max_z=" << max_z;
+      local_logger_.logPathReceived(ss.str());
+      last_replan_reason_ = "new_global_path";
+      local_logger_.logReplanTriggered(
+        "REPLAN_TRIGGERED reason=new_global_path path_size=" + std::to_string(global_path_.size()));
+      setStatus(
+        (!require_fresh_cloud_ || has_cloud_) ? "REPLAN" : "WAITING_FOR_CLOUD",
+        "new_global_path");
     } else {
       active_traj_.points.clear();
-      setStatus("WAITING_FOR_PATH");
+      local_logger_.logWarn(
+        "PATH",
+        "empty global path original_size=" + std::to_string(msg->poses.size()));
+      setStatus("WAITING_FOR_PATH", "empty_global_path");
     }
   }
 
@@ -622,6 +1333,8 @@ private:
 
   void pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg, bool static_cloud)
   {
+    const std::size_t raw_point_count =
+      static_cast<std::size_t>(msg->width) * static_cast<std::size_t>(msg->height);
     geometry_msgs::msg::TransformStamped cloud_to_map;
     bool need_transform = false;
     if (!resolveCloudTransform(*msg, cloud_to_map, need_transform)) {
@@ -658,6 +1371,15 @@ private:
         rebuildLocalObstacleMap(base_pose, true);
         publishLocalMap();
       }
+      std::ostringstream cloud_log;
+      cloud_log << std::fixed << std::setprecision(3)
+                << "static cloud received"
+                << " raw_point_count=" << raw_point_count
+                << " filtered_point_count=" << static_map_points_.size()
+                << " cloud_frame=" << (msg->header.frame_id.empty() ? lidar_frame_ : msg->header.frame_id)
+                << " cloud_age=" << cloudAgeSec(*msg)
+                << " local_map_points=" << raw_obstacle_points_.size();
+      local_logger_.logCloudStatus(cloud_log.str());
       return;
     }
 
@@ -666,6 +1388,12 @@ private:
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
         "Cannot update EGO local map because current pose is unavailable.");
+      local_logger_.logWarningThrottled(
+        "cloud_pose_unavailable",
+        "TF_ERROR",
+        "tf transform cloud failed reason=current_pose_unavailable cloud_frame=" +
+        (msg->header.frame_id.empty() ? lidar_frame_ : msg->header.frame_id),
+        logging_config_.repeated_warning_throttle_sec);
       return;
     }
 
@@ -719,10 +1447,33 @@ private:
     dynamic_occupied_xy_ = std::move(occupied_xy);
     has_cloud_ = true;
     last_cloud_time_ = now();
-    needs_replan_ = needs_replan_ || replan_on_dynamic_obstacle_;
+    if (replan_on_dynamic_obstacle_) {
+      needs_replan_ = true;
+      last_replan_reason_ = "dynamic_obstacle_detected";
+    }
 
     rebuildLocalObstacleMap(base_pose, true);
     publishLocalMap();
+    if (shouldLogCloudStatus(dynamic_raw_obstacle_points_.size())) {
+      std::ostringstream cloud_log;
+      cloud_log << std::fixed << std::setprecision(3)
+                << "cloud received"
+                << " raw_point_count=" << raw_point_count
+                << " filtered_point_count=" << dynamic_raw_obstacle_points_.size()
+                << " cloud_frame=" << (msg->header.frame_id.empty() ? lidar_frame_ : msg->header.frame_id)
+                << " cloud_age=" << cloudAgeSec(*msg)
+                << " local_map_points=" << raw_obstacle_points_.size()
+                << " local_map_updated=true";
+      local_logger_.logCloudStatus(cloud_log.str());
+    }
+    if (raw_obstacle_points_.empty()) {
+      local_logger_.logWarningThrottled(
+        "local_map_empty",
+        "LOCAL_MAP_EMPTY",
+        "local map empty raw_point_count=" + std::to_string(raw_point_count) +
+        " filtered_point_count=" + std::to_string(dynamic_raw_obstacle_points_.size()),
+        logging_config_.repeated_warning_throttle_sec);
+    }
   }
 
   bool resolveCloudTransform(
@@ -741,14 +1492,58 @@ private:
     if (!need_transform) {
       return true;
     }
-    if (!lookupTransform(map_frame_, cloud_frame, cloud_to_map)) {
+    std::string tf_error;
+    if (!lookupTransform(map_frame_, cloud_frame, cloud_to_map, &tf_error)) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 1000,
         "Cannot transform point cloud from '%s' to '%s'.",
         cloud_frame.c_str(), map_frame_.c_str());
+      local_logger_.logWarningThrottled(
+        "cloud_tf_" + cloud_frame,
+        "TF_ERROR",
+        "tf transform cloud failed source_frame=" + cloud_frame + " target_frame=" +
+        map_frame_ + " exception=\"" + tf_error + "\"",
+        logging_config_.repeated_warning_throttle_sec);
       return false;
     }
     return true;
+  }
+
+  double stampAgeSec(const builtin_interfaces::msg::Time & stamp) const
+  {
+    if (stamp.sec == 0 && stamp.nanosec == 0) {
+      return -1.0;
+    }
+    return std::max(0.0, (now() - rclcpp::Time(stamp)).seconds());
+  }
+
+  double cloudAgeSec(const sensor_msgs::msg::PointCloud2 & msg) const
+  {
+    return stampAgeSec(msg.header.stamp);
+  }
+
+  bool shouldLogCloudStatus(std::size_t filtered_point_count)
+  {
+    const auto now_time = std::chrono::steady_clock::now();
+    if (!has_logged_cloud_status_) {
+      has_logged_cloud_status_ = true;
+      last_logged_cloud_points_ = filtered_point_count;
+      last_cloud_status_log_time_ = now_time;
+      return true;
+    }
+
+    const double elapsed =
+      std::chrono::duration<double>(now_time - last_cloud_status_log_time_).count();
+    const std::size_t previous = std::max<std::size_t>(1, last_logged_cloud_points_);
+    const double change_ratio =
+      std::abs(static_cast<double>(filtered_point_count) -
+      static_cast<double>(last_logged_cloud_points_)) / static_cast<double>(previous);
+    if (elapsed >= 5.0 || change_ratio >= 0.25) {
+      last_logged_cloud_points_ = filtered_point_count;
+      last_cloud_status_log_time_ = now_time;
+      return true;
+    }
+    return false;
   }
 
   bool isLocalObstaclePoint(const Eigen::Vector3d & point, const Pose3D & base_pose) const
@@ -834,28 +1629,50 @@ private:
 
     Pose3D current_pose;
     if (!getCurrentPose(current_pose)) {
-      publishZeroCommand();
-      setStatus("FAILURE");
+      publishZeroCommand("pose_unavailable");
+      local_logger_.logWarningThrottled(
+        "pose_unavailable_replan",
+        "TF_ERROR",
+        "current pose unavailable in replan source_frame=" + base_frame_ +
+        " target_frame=" + map_frame_,
+        logging_config_.repeated_warning_throttle_sec);
+      setStatus("FAILURE", "pose_unavailable");
       return;
     }
     rebuildLocalObstacleMap(current_pose, false);
 
     if (!has_path_ || global_path_.empty()) {
-      publishZeroCommand();
-      setStatus("WAITING_FOR_PATH");
+      publishZeroCommand("no_global_path");
+      local_logger_.logWarningThrottled(
+        "global_path_lost",
+        "GLOBAL_PATH_LOST",
+        "no valid global path in replan",
+        logging_config_.repeated_warning_throttle_sec);
+      setStatus("WAITING_FOR_PATH", "no_global_path");
       return;
     }
 
     if (require_fresh_cloud_ && !isCloudFresh()) {
-      publishZeroCommand();
-      setStatus("WAITING_FOR_CLOUD");
+      publishZeroCommand("cloud_timeout");
+      const double age = has_cloud_ ? (now() - last_cloud_time_).seconds() : -1.0;
+      std::ostringstream warn;
+      warn << std::fixed << std::setprecision(3)
+           << "cloud timeout last_age=" << age
+           << " timeout=" << dynamic_obstacle_timeout_;
+      local_logger_.logWarningThrottled(
+        "cloud_timeout",
+        "CLOUD_TIMEOUT",
+        warn.str(),
+        logging_config_.repeated_warning_throttle_sec);
+      setStatus("WAITING_FOR_CLOUD", "cloud_timeout");
       return;
     }
 
     if (isGoalReached(current_pose.position)) {
       active_traj_.points.clear();
-      publishZeroCommand();
-      setStatus("GOAL_REACHED");
+      publishZeroCommand("goal_reached");
+      logGoalReached(current_pose);
+      setStatus("GOAL_REACHED", "goal_reached");
       return;
     }
 
@@ -863,32 +1680,107 @@ private:
       isPathBlocked(current_pose.position, path_block_check_distance_);
     const bool trajectory_blocked = !active_traj_.points.empty() &&
       !isTrajectoryCollisionFree(active_traj_);
+    if (path_blocked) {
+      last_replan_reason_ = "path_blocked";
+      local_logger_.logWarningThrottled(
+        "path_blocked",
+        "BLOCKED",
+        "path blocked ahead check_distance=" + std::to_string(path_block_check_distance_),
+        logging_config_.repeated_warning_throttle_sec);
+    }
+    if (trajectory_blocked) {
+      last_replan_reason_ = "trajectory_collision";
+      if (local_logger_.logWarningThrottled(
+          "trajectory_collision_replan",
+          "COLLISION_RISK",
+          "active trajectory collision detected collision_points=" +
+          std::to_string(last_collision_points_.size()),
+          logging_config_.repeated_warning_throttle_sec))
+      {
+        ++collision_count_;
+      }
+    }
 
     if (!needs_replan_ && !path_blocked && !trajectory_blocked) {
       return;
     }
 
-    setStatus(path_blocked || trajectory_blocked ? "REPLAN" : "PLANNING");
+    const bool previous_trajectory_valid = !active_traj_.points.empty() && !trajectory_collision_;
+    const std::string replan_reason =
+      path_blocked ? "path_blocked" :
+      (trajectory_blocked ? "trajectory_collision" :
+      (last_replan_reason_.empty() ? "periodic_replan" : last_replan_reason_));
+
+    setStatus(path_blocked || trajectory_blocked ? "REPLAN" : "PLANNING", replan_reason);
 
     const Eigen::Vector3d local_target =
       selectLocalTargetFromGlobalPath(current_pose.position, global_path_);
     last_local_target_ = local_target;
     publishTargetMarker(local_target);
+    logLocalTargetIfChanged(current_pose, local_target);
+
+    ++replan_count_;
+    std::ostringstream replan_log;
+    replan_log << std::fixed << std::setprecision(3)
+               << "REPLAN_TRIGGERED"
+               << " reason=" << replan_reason
+               << " current_pose=" << formatVector3(current_pose.position)
+               << " current_yaw=" << current_pose.yaw
+               << " local_target=" << formatVector3(local_target)
+               << " previous_trajectory_valid=" << (previous_trajectory_valid ? "true" : "false")
+               << " collision_detected=" << ((path_blocked || trajectory_blocked) ? "true" : "false")
+               << " dynamic_obstacle_detected=" << (has_cloud_ ? "true" : "false");
+    local_logger_.logReplanTriggered(replan_log.str());
 
     Trajectory new_traj;
-    if (planLocalTrajectory(current_pose.position, local_target, new_traj)) {
+    const auto planning_start = std::chrono::steady_clock::now();
+    const bool plan_ok = planLocalTrajectory(current_pose.position, local_target, new_traj);
+    const double planning_time_ms = std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - planning_start).count();
+    const double min_obstacle_distance = minObstacleDistance(current_pose.position);
+    const double tracking_error = distanceToGlobalPath(current_pose.position.head<2>());
+
+    if (plan_ok) {
+      const double trajectory_length = pathLength(new_traj.points);
+      const double trajectory_duration = trajectoryDurationEstimate(trajectory_length);
+      std::ostringstream success_log;
+      success_log << std::fixed << std::setprecision(3)
+                  << "planning_time_ms=" << planning_time_ms
+                  << " trajectory_points=" << new_traj.points.size()
+                  << " trajectory_duration=" << trajectory_duration
+                  << " trajectory_length=" << trajectory_length
+                  << " min_obstacle_distance="
+                  << (std::isfinite(min_obstacle_distance) ? min_obstacle_distance : -1.0)
+                  << " tracking_error=" << tracking_error;
+      local_logger_.logPlanResult("PLAN_SUCCESS", success_log.str());
       active_traj_ = std::move(new_traj);
       active_traj_.stamp = now();
       needs_replan_ = false;
+      last_replan_reason_.clear();
       trajectory_collision_ = false;
       publishTrajectory(active_traj_);
-      setStatus("TRACKING");
+      setStatus("TRACKING", "plan_success");
       return;
     }
 
     active_traj_.points.clear();
-    publishZeroCommand();
-    setStatus(path_blocked ? "BLOCKED" : "FAILURE");
+    publishZeroCommand("plan_failed");
+    std::ostringstream fail_log;
+    fail_log << std::fixed << std::setprecision(3)
+             << "planning_time_ms=" << planning_time_ms
+             << " trajectory_points=0"
+             << " trajectory_duration=0.000"
+             << " min_obstacle_distance="
+             << (std::isfinite(min_obstacle_distance) ? min_obstacle_distance : -1.0)
+             << " tracking_error=" << tracking_error
+             << " failure_reason=\"" << last_plan_failure_reason_ << "\"";
+    local_logger_.logPlanResult("PLAN_FAILED", fail_log.str());
+    local_logger_.logWarningThrottled(
+      "no_valid_trajectory",
+      "NO_VALID_TRAJECTORY",
+      "failure_reason=\"" + last_plan_failure_reason_ + "\"",
+      logging_config_.repeated_warning_throttle_sec);
+    setStatus(path_blocked ? "BLOCKED" : "FAILURE", last_plan_failure_reason_);
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), 1000,
       "EGO local replan failed: %s. Waiting for a clear local corridor or global replan.",
@@ -901,34 +1793,51 @@ private:
 
     Pose3D current_pose;
     if (!getCurrentPose(current_pose)) {
-      publishZeroCommand();
+      publishZeroCommand("pose_unavailable");
+      local_logger_.logWarningThrottled(
+        "pose_unavailable_control",
+        "TF_ERROR",
+        "current pose unavailable in control source_frame=" + base_frame_ +
+        " target_frame=" + map_frame_,
+        logging_config_.repeated_warning_throttle_sec);
       return;
     }
     rebuildLocalObstacleMap(current_pose, false);
 
     if (has_path_ && isGoalReached(current_pose.position)) {
       active_traj_.points.clear();
-      publishZeroCommand();
-      setStatus("GOAL_REACHED");
+      publishZeroCommand("goal_reached");
+      logGoalReached(current_pose);
+      setStatus("GOAL_REACHED", "goal_reached");
       return;
     }
 
     if (active_traj_.points.empty()) {
-      publishZeroCommand();
+      publishZeroCommand("no_active_trajectory");
       return;
     }
 
     if (!isTrajectoryCollisionFree(active_traj_)) {
       trajectory_collision_ = true;
       needs_replan_ = true;
-      publishZeroCommand();
-      setStatus("REPLAN");
+      last_replan_reason_ = "trajectory_collision";
+      if (local_logger_.logWarningThrottled(
+          "trajectory_collision_control",
+          "COLLISION_RISK",
+          "active trajectory collision during control collision_points=" +
+          std::to_string(last_collision_points_.size()),
+          logging_config_.repeated_warning_throttle_sec))
+      {
+        ++collision_count_;
+      }
+      publishZeroCommand("trajectory_collision");
+      setStatus("REPLAN", "trajectory_collision");
       return;
     }
 
     geometry_msgs::msg::Twist cmd;
     if (!computeCmdVelFromLocalTrajectory(active_traj_, current_pose, cmd)) {
-      publishZeroCommand();
+      publishZeroCommand("tracking_failed");
       return;
     }
 
@@ -938,8 +1847,19 @@ private:
     {
       trajectory_collision_ = true;
       needs_replan_ = true;
-      publishZeroCommand();
-      setStatus("REPLAN");
+      last_replan_reason_ = "obstacle_stop_distance";
+      if (local_logger_.logWarningThrottled(
+          "obstacle_stop_distance",
+          "COLLISION_RISK",
+          "obstacle inside stop distance min_obstacle_distance=" +
+          std::to_string(min_obstacle_distance) + " stop_distance=" +
+          std::to_string(obstacle_stop_distance_),
+          logging_config_.repeated_warning_throttle_sec))
+      {
+        ++collision_count_;
+      }
+      publishZeroCommand("obstacle_stop_distance");
+      setStatus("REPLAN", "obstacle_stop_distance");
       return;
     }
 
@@ -974,16 +1894,22 @@ private:
       }
       if (!found_safe_scale) {
         needs_replan_ = true;
-        publishZeroCommand();
-        setStatus("REPLAN");
+        last_replan_reason_ = "cmd_collision";
+        if (local_logger_.logWarningThrottled(
+            "cmd_collision",
+            "COLLISION_RISK",
+            "cmd_vel projection collision no safe scale cmd=" + formatTwist2D(cmd),
+            logging_config_.repeated_warning_throttle_sec))
+        {
+          ++collision_count_;
+        }
+        publishZeroCommand("cmd_collision");
+        setStatus("REPLAN", "cmd_collision");
         return;
       }
     }
-    cmd_pub_->publish(cmd);
-    last_cmd_ = cmd;
-    last_cmd_time_ = now();
-    last_cmd_valid_ = true;
-    setStatus("TRACKING");
+    publishCommand(cmd, "tracking");
+    setStatus("TRACKING", "tracking_command");
   }
 
   void collisionCallback()
@@ -995,8 +1921,18 @@ private:
     if (!isTrajectoryCollisionFree(active_traj_)) {
       trajectory_collision_ = true;
       needs_replan_ = true;
-      publishZeroCommand();
-      setStatus("REPLAN");
+      last_replan_reason_ = "trajectory_collision";
+      if (local_logger_.logWarningThrottled(
+          "trajectory_collision_check",
+          "COLLISION_RISK",
+          "collision checker found active trajectory collision collision_points=" +
+          std::to_string(last_collision_points_.size()),
+          logging_config_.repeated_warning_throttle_sec))
+      {
+        ++collision_count_;
+      }
+      publishZeroCommand("trajectory_collision");
+      setStatus("REPLAN", "trajectory_collision");
       return;
     }
 
@@ -1005,7 +1941,14 @@ private:
       isPathBlocked(current_pose.position, path_block_check_distance_))
     {
       needs_replan_ = true;
-      setStatus("REPLAN");
+      last_replan_reason_ = "path_blocked";
+      local_logger_.logWarningThrottled(
+        "path_blocked_collision_check",
+        "BLOCKED",
+        "collision checker found global path blocked check_distance=" +
+        std::to_string(path_block_check_distance_),
+        logging_config_.repeated_warning_throttle_sec);
+      setStatus("REPLAN", "path_blocked");
     }
   }
 
@@ -1051,6 +1994,7 @@ private:
     std_msgs::msg::String msg;
     msg.data = ss.str();
     debug_pub_->publish(msg);
+    maybeLogPeriodicSummary(pose, has_pose);
 
     if (debug_visualization_enabled_ && has_pose) {
       if (!active_traj_.points.empty() && !trajectory_collision_) {
@@ -1063,6 +2007,175 @@ private:
       publishCandidateTrajectoriesMarker();
       publishLocalMapMarker();
     }
+  }
+
+  void maybeLogPeriodicSummary(const Pose3D & pose, bool has_pose)
+  {
+    if (!logging_config_.periodic_summary_enabled || !local_logger_.isEnabled()) {
+      return;
+    }
+    const auto now_time = std::chrono::steady_clock::now();
+    if (has_summary_log_time_) {
+      const double elapsed =
+        std::chrono::duration<double>(now_time - last_summary_log_time_).count();
+      if (elapsed < logging_config_.summary_log_interval_sec) {
+        return;
+      }
+    }
+    has_summary_log_time_ = true;
+    last_summary_log_time_ = now_time;
+
+    const double min_obstacle_distance = has_pose ?
+      minObstacleDistance(pose.position) : std::numeric_limits<double>::infinity();
+    const double tracking_error = has_pose ?
+      distanceToGlobalPath(pose.position.head<2>()) : -1.0;
+
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(3);
+    ss << "state=" << status_;
+    if (has_pose) {
+      ss << " current_pose=(" << pose.position.x() << "," << pose.position.y() << ","
+         << pose.position.z() << "," << pose.yaw << ")";
+      ss << " pose_source=" << last_pose_source_;
+      ss << " tf_age=" << last_pose_tf_age_sec_;
+    } else {
+      ss << " current_pose=unavailable pose_source=unavailable tf_age=-1";
+    }
+    ss << " local_target=" << formatVector3(last_local_target_);
+    ss << " path_size=" << global_path_.size();
+    ss << " local_map_points=" << raw_obstacle_points_.size();
+    ss << " trajectory_valid="
+       << ((!active_traj_.points.empty() && !trajectory_collision_) ? "true" : "false");
+    ss << " min_obstacle_distance="
+       << (std::isfinite(min_obstacle_distance) ? min_obstacle_distance : -1.0);
+    ss << " tracking_error=" << tracking_error;
+    ss << " cmd_vel_nav=" << formatTwist2D(last_cmd_);
+    ss << " replan_count=" << replan_count_;
+    ss << " collision_count=" << collision_count_;
+    local_logger_.logSummary(ss.str());
+  }
+
+  void logLocalTargetIfChanged(
+    const Pose3D & current_pose,
+    const Eigen::Vector3d & local_target)
+  {
+    if (!local_logger_.isEnabled()) {
+      return;
+    }
+    const bool should_log = !has_logged_local_target_ ||
+      (local_target - last_logged_local_target_).norm() >=
+      logging_config_.target_change_log_threshold;
+    if (!should_log) {
+      return;
+    }
+
+    has_logged_local_target_ = true;
+    last_logged_local_target_ = local_target;
+    const std::size_t nearest_index = global_path_.empty() ?
+      0 : nearestPathIndex(current_pose.position, global_path_);
+    const double lookahead_distance =
+      (local_target.head<2>() - current_pose.position.head<2>()).norm();
+    const double distance_to_final = global_path_.empty() ?
+      -1.0 : distance3d(global_path_.back(), current_pose.position);
+
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(3)
+       << "local target updated"
+       << " target=" << formatVector3(local_target)
+       << " nearest_path_index=" << nearest_index
+       << " lookahead_distance=" << lookahead_distance
+       << " distance_to_final_goal=" << distance_to_final;
+    local_logger_.logInfo("LOCAL_TARGET", ss.str());
+  }
+
+  void logGoalReached(const Pose3D & current_pose)
+  {
+    if (goal_reached_logged_ || global_path_.empty()) {
+      return;
+    }
+    goal_reached_logged_ = true;
+    const Eigen::Vector3d final_goal = global_path_.back();
+    const double position_error = distance3d(final_goal, current_pose.position);
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(3)
+       << "GOAL_REACHED"
+       << " final_pose=(" << current_pose.position.x() << "," << current_pose.position.y()
+       << "," << current_pose.position.z() << "," << current_pose.yaw << ")"
+       << " final_goal=" << formatVector3(final_goal)
+       << " position_error=" << position_error
+       << " yaw_error=0.000";
+    local_logger_.logInfo("GOAL_REACHED", ss.str());
+  }
+
+  double trajectoryDurationEstimate(double trajectory_length) const
+  {
+    const double speed = std::max(0.01, std::max(std::abs(max_vel_x_), std::abs(max_vel_y_)));
+    return trajectory_length / speed;
+  }
+
+  bool isZeroCommand(const geometry_msgs::msg::Twist & cmd) const
+  {
+    return std::abs(cmd.linear.x) < 1.0e-4 &&
+           std::abs(cmd.linear.y) < 1.0e-4 &&
+           std::abs(cmd.angular.z) < 1.0e-4;
+  }
+
+  double commandDelta(
+    const geometry_msgs::msg::Twist & a,
+    const geometry_msgs::msg::Twist & b) const
+  {
+    return std::max(
+      {std::abs(a.linear.x - b.linear.x),
+        std::abs(a.linear.y - b.linear.y),
+        std::abs(a.angular.z - b.angular.z)});
+  }
+
+  void logCommandIfChanged(
+    const geometry_msgs::msg::Twist & cmd,
+    const std::string & reason)
+  {
+    if (!local_logger_.isEnabled()) {
+      return;
+    }
+    const bool zero_now = isZeroCommand(cmd);
+    const bool zero_before = !has_logged_cmd_ || isZeroCommand(last_logged_cmd_);
+    const bool critical_reason =
+      reason == "blocked" || reason == "goal_reached" || reason == "cloud_timeout" ||
+      reason == "pose_unavailable" || reason == "trajectory_collision" ||
+      reason == "cmd_collision" || reason == "plan_failed" ||
+      reason == "obstacle_stop_distance";
+    const bool new_critical_reason =
+      critical_reason && (!has_logged_cmd_ || reason != last_logged_cmd_reason_);
+    const bool should_log = !has_logged_cmd_ ||
+      zero_now != zero_before ||
+      commandDelta(cmd, last_logged_cmd_) >= logging_config_.cmd_change_log_threshold ||
+      new_critical_reason;
+    if (!should_log) {
+      return;
+    }
+
+    has_logged_cmd_ = true;
+    last_logged_cmd_ = cmd;
+    last_logged_cmd_reason_ = reason;
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(3)
+       << "cmd_vel changed"
+       << " linear.x=" << cmd.linear.x
+       << " linear.y=" << cmd.linear.y
+       << " angular.z=" << cmd.angular.z
+       << " reason=" << reason;
+    local_logger_.logCmdVelChanged(ss.str());
+  }
+
+  void publishCommand(
+    const geometry_msgs::msg::Twist & cmd,
+    const std::string & reason)
+  {
+    logCommandIfChanged(cmd, reason);
+    cmd_pub_->publish(cmd);
+    last_cmd_ = cmd;
+    last_cmd_time_ = now();
+    last_cmd_valid_ = true;
   }
 
   bool useZAwarePathTracking() const
@@ -1820,11 +2933,14 @@ private:
     return out;
   }
 
-  bool getCurrentPose(Pose3D & pose) const
+  bool getCurrentPose(Pose3D & pose)
   {
     geometry_msgs::msg::TransformStamped transform;
+    std::string last_tf_error;
     for (const auto & base_frame : base_frame_candidates_) {
-      if (!lookupTransform(map_frame_, base_frame, transform)) {
+      std::string tf_error;
+      if (!lookupTransform(map_frame_, base_frame, transform, &tf_error)) {
+        last_tf_error = tf_error;
         continue;
       }
       pose.position = Eigen::Vector3d(
@@ -1832,10 +2948,15 @@ private:
         transform.transform.translation.y,
         transform.transform.translation.z);
       pose.yaw = tf2::getYaw(transform.transform.rotation);
+      last_pose_source_ = "tf:" + base_frame;
+      last_pose_tf_age_sec_ = stampAgeSec(transform.header.stamp);
       return true;
     }
 
     if (!has_odom_) {
+      last_pose_source_ = "unavailable";
+      last_pose_tf_age_sec_ = -1.0;
+      last_pose_error_ = last_tf_error.empty() ? "odom_unavailable" : last_tf_error;
       return false;
     }
 
@@ -1852,11 +2973,18 @@ private:
         odom_pose.pose.position.y,
         odom_pose.pose.position.z);
       pose.yaw = tf2::getYaw(odom_pose.pose.orientation);
+      last_pose_source_ = "odom";
+      last_pose_tf_age_sec_ = stampAgeSec(odom_pose.header.stamp);
+      last_pose_error_.clear();
       return true;
     }
 
     geometry_msgs::msg::TransformStamped odom_to_map;
-    if (!lookupTransform(map_frame_, odom_pose.header.frame_id, odom_to_map)) {
+    std::string tf_error;
+    if (!lookupTransform(map_frame_, odom_pose.header.frame_id, odom_to_map, &tf_error)) {
+      last_pose_source_ = "unavailable";
+      last_pose_tf_age_sec_ = -1.0;
+      last_pose_error_ = tf_error;
       return false;
     }
 
@@ -1867,18 +2995,28 @@ private:
       map_pose.pose.position.y,
       map_pose.pose.position.z);
     pose.yaw = tf2::getYaw(map_pose.pose.orientation);
+    last_pose_source_ = "odom+tf:" + odom_pose.header.frame_id;
+    last_pose_tf_age_sec_ = stampAgeSec(odom_to_map.header.stamp);
+    last_pose_error_.clear();
     return true;
   }
 
   bool lookupTransform(
     const std::string & target,
     const std::string & source,
-    geometry_msgs::msg::TransformStamped & transform) const
+    geometry_msgs::msg::TransformStamped & transform,
+    std::string * error_message = nullptr) const
   {
     try {
       transform = tf_buffer_.lookupTransform(target, source, tf2::TimePointZero);
+      if (error_message != nullptr) {
+        error_message->clear();
+      }
       return true;
-    } catch (const tf2::TransformException &) {
+    } catch (const tf2::TransformException & ex) {
+      if (error_message != nullptr) {
+        *error_message = ex.what();
+      }
       return false;
     }
   }
@@ -1894,6 +3032,7 @@ private:
   void clearExpiredCloud()
   {
     if (has_cloud_ && (now() - last_cloud_time_).seconds() > dynamic_obstacle_timeout_) {
+      const double age = (now() - last_cloud_time_).seconds();
       has_cloud_ = false;
       dynamic_raw_obstacle_points_.clear();
       dynamic_occupied_voxels_.clear();
@@ -1908,6 +3047,16 @@ private:
         has_local_map_rebuild_pose_ = false;
       }
       needs_replan_ = true;
+      last_replan_reason_ = "cloud_timeout";
+      std::ostringstream warn;
+      warn << std::fixed << std::setprecision(3)
+           << "cloud timeout last_age=" << age
+           << " timeout=" << dynamic_obstacle_timeout_;
+      local_logger_.logWarningThrottled(
+        "cloud_timeout",
+        "CLOUD_TIMEOUT",
+        warn.str(),
+        logging_config_.repeated_warning_throttle_sec);
       publishLocalMap();
     }
   }
@@ -1936,13 +3085,10 @@ private:
     return limited;
   }
 
-  void publishZeroCommand()
+  void publishZeroCommand(const std::string & reason = "zero_command")
   {
     geometry_msgs::msg::Twist cmd;
-    cmd_pub_->publish(cmd);
-    last_cmd_ = cmd;
-    last_cmd_time_ = now();
-    last_cmd_valid_ = true;
+    publishCommand(cmd, reason);
   }
 
   void publishTrajectory(const Trajectory & traj)
@@ -2187,18 +3333,21 @@ private:
     cmd_vel_marker_pub_->publish(marker);
   }
 
-  void setStatus(const std::string & status)
+  void setStatus(const std::string & status, const std::string & reason = "")
   {
     if (status == status_) {
       return;
     }
+    const std::string previous = status_.empty() ? "NONE" : status_;
     status_ = status;
     std_msgs::msg::String msg;
     msg.data = status_;
     status_pub_->publish(msg);
+    local_logger_.logStateChange(previous, status_, reason);
   }
 
   std::string map_frame_;
+  std::string config_file_;
   std::string odom_frame_;
   std::string base_frame_;
   std::string base_frame_candidates_param_;
@@ -2291,6 +3440,8 @@ private:
   bool debug_visualization_enabled_{true};
   double footprint_height_{0.55};
   double static_map_update_distance_{0.25};
+  LocalPlannerLoggingConfig logging_config_;
+  LocalPlannerLogger local_logger_;
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
@@ -2340,14 +3491,31 @@ private:
   std::unordered_set<GridKey, GridKeyHash> occupied_xy_;
   Trajectory active_traj_;
   Eigen::Vector3d last_local_target_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d last_logged_local_target_{Eigen::Vector3d::Zero()};
+  bool has_logged_local_target_{false};
   bool needs_replan_{false};
   bool trajectory_collision_{false};
   std::string status_;
   std::string last_plan_failure_reason_;
+  std::string last_replan_reason_;
+  std::string last_pose_source_{"unavailable"};
+  std::string last_pose_error_;
+  double last_pose_tf_age_sec_{-1.0};
+  std::size_t replan_count_{0};
+  std::size_t collision_count_{0};
+  bool goal_reached_logged_{false};
+  bool has_logged_cloud_status_{false};
+  std::size_t last_logged_cloud_points_{0};
+  std::chrono::steady_clock::time_point last_cloud_status_log_time_{};
+  bool has_summary_log_time_{false};
+  std::chrono::steady_clock::time_point last_summary_log_time_{};
 
   geometry_msgs::msg::Twist last_cmd_;
+  geometry_msgs::msg::Twist last_logged_cmd_;
+  std::string last_logged_cmd_reason_;
   rclcpp::Time last_cmd_time_{0, 0, RCL_ROS_TIME};
   bool last_cmd_valid_{false};
+  bool has_logged_cmd_{false};
 };
 
 }  // namespace ego_local_planner

@@ -27,6 +27,7 @@ def generate_launch_description():
             parameters=[
                 LaunchConfiguration("config_file"),
                 {
+                    "config_file": LaunchConfiguration("config_file"),
                     "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
                     "require_fresh_cloud": ParameterValue(LaunchConfiguration("require_fresh_cloud"), value_type=bool),
                     "global_path_topic": "/planned_path",

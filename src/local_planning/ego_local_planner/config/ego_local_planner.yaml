@@ -98,3 +98,25 @@ ego_local_planner_node:
     debug_visualization_enabled: true
     footprint_height: 0.55
     static_map_update_distance: 0.25
+
+    local_planner_logging:
+      enabled: true
+      log_dir: "debug/logs/local_planner"
+      log_file_prefix: "local_planner"
+      log_format: "text"
+      also_log_to_console: false
+
+      periodic_summary_enabled: true
+      summary_log_interval_sec: 1.0
+      repeated_warning_throttle_sec: 2.0
+
+      pose_change_log_threshold: 0.2
+      target_change_log_threshold: 0.3
+      cmd_change_log_threshold: 0.05
+      obstacle_distance_change_log_threshold: 0.2
+
+      flush_interval_sec: 2.0
+      flush_on_error: true
+
+      max_log_file_size_mb: 50.0
+      max_log_files: 20

@@ -32,7 +32,10 @@ def generate_launch_description():
         output="screen",
         parameters=[
             LaunchConfiguration("config_file"),
-            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {
+                "config_file": LaunchConfiguration("config_file"),
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+            },
         ],
     )
 

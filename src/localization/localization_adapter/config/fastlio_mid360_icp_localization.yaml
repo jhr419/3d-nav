@@ -15,7 +15,7 @@ icp_localization_node:
     # # Non-ground / feature map used as the ICP registration target.
     # icp_map_pcd_path: "maps/glim_office_csf_map/non_ground_map.pcd"
 
-    odom_topic: "/Odometry"
+    odom_topic: "/32完全  "
     scan_topic: "/cloud_registered_body"
     initialpose_topic: "/initialpose"
 
