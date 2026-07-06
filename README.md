@@ -221,6 +221,33 @@ Planning RViz2
 ros2 launch 3dnav_bringup navigation.launch offline_test:=true
 ```
 
+无 RViz 的快速离线 smoke test：
+
+```bash
+ros2 launch 3dnav_bringup navigation.launch offline_test:=true rviz:=false diagnostics:=false
+```
+
+另开终端发布一个已验证可规划的近距离目标：
+
+```bash
+ros2 topic pub --once /goal_pose_3d geometry_msgs/msg/PoseStamped "{
+  header: {frame_id: map},
+  pose: {
+    position: {x: -1.0, y: 3.2, z: 0.0},
+    orientation: {w: 1.0}
+  }
+}"
+```
+
+检查全局路径、局部规划状态和性能输出：
+
+```bash
+ros2 topic echo /astar_global_planner/status --once
+ros2 topic echo /planned_path --once
+ros2 topic echo /ego_local_planner/status --once
+ros2 topic echo /local_planner/performance --once
+```
+
 也可以使用总入口启动当前默认导航系统：
 
 ```bash
@@ -469,6 +496,31 @@ ros2 launch 3dnav_bringup navigation.launch robot_api:=false
 ```bash
 ros2 launch 3dnav_bringup navigation.launch offline_test:=true
 ```
+
+如果只想做无界面的离线链路 smoke test：
+
+```bash
+ros2 launch 3dnav_bringup navigation.launch offline_test:=true rviz:=false diagnostics:=false
+```
+
+然后发布目标并检查输出：
+
+```bash
+ros2 topic pub --once /goal_pose_3d geometry_msgs/msg/PoseStamped "{
+  header: {frame_id: map},
+  pose: {
+    position: {x: -1.0, y: 3.2, z: 0.0},
+    orientation: {w: 1.0}
+  }
+}"
+
+ros2 topic echo /astar_global_planner/status --once
+ros2 topic echo /planned_path --once
+ros2 topic echo /ego_local_planner/status --once
+ros2 topic echo /local_planner/performance --once
+```
+
+离线模式使用静态 `map -> base_link`，机器人位姿不会移动；因此长时间运行时局部规划的 stuck/recovery 日志可能会触发，这是静态离线测试的正常现象。若开启 `diagnostics:=true`，由于没有真实雷达、完整 TF 链和机器人速度门控，诊断节点也会给出预期的 warning/error。
 
 `offline_test:=true` 会自动覆盖为：
 
