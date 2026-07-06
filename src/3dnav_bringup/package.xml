@@ -10,6 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>nav3d_control</exec_depend>
+  <exec_depend>nav3d_diagnostics</exec_depend>
   <exec_depend>ego_local_planner</exec_depend>
   <exec_depend>fast_lio</exec_depend>
   <exec_depend>launch</exec_depend>

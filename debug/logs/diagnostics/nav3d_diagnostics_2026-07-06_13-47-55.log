@@ -1,0 +1,19 @@
+[2026-07-06 13:47:55.779] [INFO] [STARTUP] diagnostics started config_file=/home/jhr/3dnav_ws/install/nav3d_bringup/share/nav3d_bringup/config/nav3d_diagnostics.yaml
+[2026-07-06 13:48:02.970] [INFO] [STARTUP_CHECK] self-check started
+[2026-07-06 13:48:02.970] [INFO] [CHECK_TOPICS] required_topics=/planned_path,/cmd_vel_nav,/cmd_vel,/nav3d/execution_state
+[2026-07-06 13:48:02.970] [INFO] [TOPIC_EXISTENCE] topic=/planned_path exists=True
+[2026-07-06 13:48:02.970] [INFO] [TOPIC_EXISTENCE] topic=/cmd_vel_nav exists=True
+[2026-07-06 13:48:02.970] [INFO] [TOPIC_EXISTENCE] topic=/cmd_vel exists=True
+[2026-07-06 13:48:02.970] [INFO] [TOPIC_EXISTENCE] topic=/nav3d/execution_state exists=True
+[2026-07-06 13:48:02.970] [ERROR] [TOPIC_FREQUENCY] name=lidar topic=/livox/lidar hz=0.000 status=ERROR reason=frequency_below_required age_sec=-1.000
+[2026-07-06 13:48:02.971] [ERROR] [TOPIC_FREQUENCY] name=local_cloud topic=/local_obstacle_cloud_filtered hz=1.998 status=ERROR reason=frequency_below_required age_sec=0.003
+[2026-07-06 13:48:02.971] [WARN] [TOPIC_FREQUENCY] name=global_path topic=/planned_path hz=0.000 status=WARN reason=frequency_below_ok age_sec=-1.000
+[2026-07-06 13:48:02.971] [INFO] [TOPIC_FREQUENCY] name=local_trajectory topic=/local_planner/local_trajectory_marker hz=1.998 status=OK reason=ok age_sec=0.001
+[2026-07-06 13:48:02.971] [INFO] [TOPIC_FREQUENCY] name=cmd_vel_nav topic=/cmd_vel_nav hz=40.831 status=OK reason=ok age_sec=-1.000
+[2026-07-06 13:48:02.972] [ERROR] [TOPIC_FREQUENCY] name=cmd_vel topic=/cmd_vel hz=0.000 status=ERROR reason=frequency_below_required age_sec=-1.000
+[2026-07-06 13:48:02.972] [INFO] [TOPIC_FREQUENCY] name=required:/nav3d/execution_state topic=/nav3d/execution_state hz=0.000 status=OK reason=ok age_sec=-1.000
+[2026-07-06 13:48:02.972] [ERROR] [LIDAR_HZ] lidar_hz=0.000 judgement=ERROR
+[2026-07-06 13:48:03.153] [ERROR] [TF_CHECK] map->odom=ERROR odom->base_link=ERROR base_link->livox_frame=ERROR
+[2026-07-06 13:48:03.338] [ERROR] [OVERALL] lidar_hz=0.000 lidar_status=ERROR lidar_reason=frequency_below_required local_cloud_hz=2.003 local_cloud_age_sec=0.003 local_cloud_status=ERROR local_cloud_reason=frequency_below_required global_path_hz=0.000 global_path_status=WARN global_path_reason=frequency_below_ok local_trajectory_hz=2.003 local_trajectory_age_sec=0.001 local_trajectory_status=OK cmd_vel_nav_hz=40.209 cmd_vel_nav_status=OK cmd_vel_hz=0.000 cmd_vel_status=ERROR cmd_vel_reason=frequency_below_required nav3d_execution_state_hz=0.000 nav3d_execution_state_status=OK lidar_judgement=ERROR tf_status=map->odom=ERROR,odom->base_link=ERROR,base_link->livox_frame=ERROR overall_status=ERROR possible_causes=/livox/lidar publisher too slow or blocked; /local_obstacle_cloud_filtered publisher too slow or blocked; /cmd_vel publisher too slow or blocked; lidar frequency below 5Hz: driver, network, CPU load, or QoS mismatch
+[2026-07-06 13:48:03.338] [ERROR] [POSSIBLE_CAUSES] topic missing, lidar below 5Hz, TF disconnected, control gate not started, or local planner blocked
+[2026-07-06 13:48:03.338] [INFO] [STARTUP_CHECK] self-check finished

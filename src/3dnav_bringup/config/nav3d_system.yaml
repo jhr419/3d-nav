@@ -118,8 +118,45 @@ modules:
     path_tracking_weight: 1.0
     slow_down_near_obstacle: true
     obstacle_slow_distance: 0.8
-    obstacle_stop_distance: 0.35
+    obstacle_stop_distance: 0.30
+    pointcloud_qos: "sensor_data"
+    keep_latest_cloud_only: true
+    drop_old_cloud_if_busy: true
+    cloud_processing_frequency: 10.0
+    max_cloud_processing_time_ms: 50.0
+    voxel_leaf_size: 0.10
+    max_local_cloud_points: 30000
+    visualization_enabled: true
+    visualization_publish_frequency: 2.0
+    heavy_debug_visualization_enabled: false
+    max_marker_points: 5000
+    max_candidate_trajectories_visualized: 20
     debug_visualization_enabled: true
+    corner_safety_enabled: true
+    corner_detect_distance: 1.2
+    corner_slowdown_distance: 1.0
+    corner_min_clearance: 0.45
+    corner_preferred_clearance: 0.75
+    corner_speed_scale: 0.45
+    corner_lookahead_shorten_factor: 0.5
+    avoid_cutting_corners: true
+    obstacle_speed_scaling_enabled: true
+    min_executable_vx: 0.08
+    min_executable_vy: 0.08
+    min_executable_wz: 0.15
+    allow_tangent_escape_near_obstacle: true
+    tangent_escape_speed: 0.12
+    stuck_detection_enabled: true
+    stuck_time_threshold: 2.0
+    min_progress_distance: 0.05
+    recovery_enabled: true
+    recovery_reverse_speed: -0.12
+    recovery_lateral_speed: 0.12
+    recovery_yaw_rate: 0.35
+  diagnostics:
+    package: "nav3d_diagnostics"
+    executable: "nav3d_system_diagnostics_node"
+    config: "src/3dnav_bringup/config/nav3d_diagnostics.yaml"
   robot_api:
     control_package: "nav3d_control"
     bridge_package: "go2_twist_bridge"

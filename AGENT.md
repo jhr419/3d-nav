@@ -10,7 +10,7 @@ interfaces, launch flow, configuration, maps, or debugging workflow changes.
 This workspace implements a ROS 2 Humble 3D navigation system for Livox MID360,
 FAST-LIO mapping/localization, PCT Tomography map preprocessing, switchable
 global planning, EGO local planning, Unitree Go2 velocity bridging, execution
-control, and RViz/debug tooling.
+control, runtime diagnostics, and RViz/debug tooling.
 
 Main pipeline:
 
@@ -33,7 +33,8 @@ Supported global planners:
 Navigation execution is controlled by services for Start, Stop, Pause, Resume,
 and Clear Path. RViz2 is used for localization, planning, goal selection, and
 debug markers. Local planner file logging is available under
-`debug/logs/local_planner`.
+`debug/logs/local_planner`; system self-check and topic/TF diagnostics logs are
+available under `debug/logs/diagnostics`.
 
 ## 2. Repository Layout
 
@@ -57,6 +58,7 @@ Actual top-level layout:
 |   |-- analyze_local_planner_log.py
 |   `-- tail_latest_local_planner_log.sh
 `-- src/
+    |-- 3dnav_diagnostics/
     |-- 3dnav_bringup/
     |-- 3dnav_common/
     |-- 3dnav_control/
@@ -211,8 +213,29 @@ Core interfaces:
   `/mid360`, plus static `/global_points`
 - Odometry: `/Odometry`
 - Publishes: `/cmd_vel_nav`, `/ego_local_trajectory`,
-  `/ego_local_trajectory_marker`, `/ego_local_map_vis`, target/candidate/collision
-  markers, `/ego_local_planner/status`, `/ego_debug_text`
+  `/local_obstacle_cloud_filtered`, `/local_planner/performance`,
+  `/local_planner/local_trajectory_marker`, `/local_planner/local_target_marker`,
+  `/local_planner/footprint_marker`, `/local_planner/collision_points_marker`,
+  `/local_planner/cmd_vel_marker`, `/local_planner/corner_risk_marker`,
+  `/local_planner/performance_marker`, `/ego_local_planner/status`,
+  `/ego_debug_text`
+
+Performance/realtime behavior:
+
+- Dynamic point cloud callbacks cache only the newest frame; heavy processing
+  runs in a separate cloud-processing timer.
+- Point cloud preprocessing does local cropping, self filtering, optional
+  ground filtering, voxel downsampling, inflated local occupancy generation,
+  and point-count limiting.
+- RViz/debug visualization is published from a separate visualization timer and
+  is capped by marker/point limits so control and replanning are not blocked by
+  marker volume.
+- Corner-aware behavior detects sharp upcoming path turns and local cloud
+  corner risk, shortens lookahead, slows near corners, avoids shortcutting the
+  inside corner, and publishes `/local_planner/corner_risk_marker`.
+- Near-obstacle speed scaling is direction-aware; side obstacles should not
+  zero all motion. Safe low commands may be boosted to executable thresholds,
+  and tangent escape / recovery commands are collision checked before publish.
 
 Local planner file logging is implemented in
 `src/local_planning/ego_local_planner/src/ego_local_planner_node.cpp` through
@@ -228,9 +251,10 @@ local_planner_logging:
 
 The logger records startup, state changes, path summaries, point cloud/map
 status, local target updates, replans, plan success/failure, throttled warnings,
-cmd_vel changes, goal reached, and periodic summaries. It uses project-relative
-paths, timestamped files, warning throttling, flush intervals, and size-based
-log rotation.
+cmd_vel changes, goal reached, periodic summaries, performance summaries,
+corner risk, low-speed stuck, tangent escape, and recovery events. It uses
+project-relative paths, timestamped files, warning throttling, flush intervals,
+and size-based log rotation.
 
 Debug helpers:
 
@@ -261,6 +285,8 @@ Velocity flow:
   and algorithm switching.
 - `src/3dnav_control`: execution state machine and command velocity gate.
 - `src/3dnav_common`: common compatibility package.
+- `src/3dnav_diagnostics`: system self-check, topic frequency monitor,
+  TF checks, diagnostic status/report publishers, and diagnostic file logging.
 - `src/3dnav_rviz_plugins`: RViz plugin/package placeholder.
 
 Execution state machine states:
@@ -278,6 +304,17 @@ ros2 service call /nav3d/pause std_srvs/srv/Trigger "{}"
 ros2 service call /nav3d/resume std_srvs/srv/Trigger "{}"
 ros2 service call /nav3d/clear_path std_srvs/srv/Trigger "{}"
 ```
+
+Diagnostics:
+
+- Node: `nav3d_system_diagnostics_node`
+- Config: `src/3dnav_bringup/config/nav3d_diagnostics.yaml`
+- Status topic: `/nav3d/diagnostics/status` (`OK`, `WARN`, `ERROR`)
+- Report topic: `/nav3d/diagnostics/report`
+- Logs: `debug/logs/diagnostics/nav3d_diagnostics_*.log`
+- Default TF checks: `map -> odom`, `odom -> base_link`,
+  `base_link -> livox_frame`
+- Lidar frequency judgement: `>=8Hz` OK, `5-8Hz` WARN, `<5Hz` ERROR
 
 ## 4. Build Instructions
 
@@ -357,6 +394,7 @@ Default online navigation:
 
 ```bash
 ros2 launch 3dnav_bringup navigation.launch
+ros2 launch 3dnav_bringup navigation.launch diagnostics:=false
 ```
 
 Offline planning/RViz test:
@@ -369,6 +407,7 @@ Full system wrapper:
 
 ```bash
 ros2 launch 3dnav_bringup full_system.launch
+ros2 launch 3dnav_bringup full_system.launch diagnostics:=false
 ```
 
 ## 6. Maps And Project-Relative Paths
@@ -409,6 +448,8 @@ YAML-driven switches currently include:
   `src/localization/localization_adapter/config/fastlio_mid360_icp_localization.yaml`.
 - EGO local planner and local planner logging:
   `src/local_planning/ego_local_planner/config/ego_local_planner.yaml`.
+- System diagnostics:
+  `src/3dnav_bringup/config/nav3d_diagnostics.yaml`.
 - Execution control:
   `src/3dnav_control/config/nav_execution_controller.yaml`.
 - Go2 twist bridge:
@@ -427,10 +468,13 @@ ros2 pkg executables nav3d_control
 Key topics:
 
 ```bash
-ros2 topic list | grep -E "planned_path|cmd_vel|nav3d|icp|tomogram"
+ros2 topic list | grep -E "planned_path|cmd_vel|nav3d|local_planner|icp|tomogram"
 ros2 topic echo /planned_path --once
 ros2 topic echo /ego_local_planner/status --once
 ros2 topic echo /nav3d/execution_state --once
+ros2 topic echo /nav3d/diagnostics/status --once
+ros2 topic echo /nav3d/diagnostics/report --once
+ros2 topic echo /local_planner/performance --once
 ```
 
 Local planner logs:
@@ -438,6 +482,12 @@ Local planner logs:
 ```bash
 bash scripts/tail_latest_local_planner_log.sh
 python3 scripts/analyze_local_planner_log.py
+```
+
+Diagnostics logs:
+
+```bash
+tail -f debug/logs/diagnostics/nav3d_diagnostics_*.log
 ```
 
 Common motion issue: Go2 will not move unless `/nav3d/execution_state` is
@@ -459,4 +509,5 @@ Common motion issue: Go2 will not move unless `/nav3d/execution_state` is
 - Avoid scanning or modifying generated directories and large map/log assets
   unless explicitly requested.
 - When changing local planning, preserve throttled file logging behavior and
-  update `scripts/analyze_local_planner_log.py` if new event names are added.
+  update `scripts/analyze_local_planner_log.py` if new event names need to be
+  parsed as structured metrics.

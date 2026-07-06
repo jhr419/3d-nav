@@ -1,0 +1,94 @@
+[2026-07-06 13:50:55.202] [INFO] [STARTUP] local planner logger initialized file=/home/jhr/3dnav_ws/debug/logs/local_planner/local_planner_2026-07-06_13-50-55.log
+[2026-07-06 13:50:55.208] [INFO] [STATE] from=NONE to=WAITING_FOR_PATH reason=startup
+[2026-07-06 13:50:55.208] [INFO] [STARTUP] local planner started node_name=ego_local_planner_node config_file=/home/jhr/3dnav_ws/install/ego_local_planner/share/ego_local_planner/config/ego_local_planner.yaml map_frame=map odom_frame=odom base_frame=base_link pointcloud_topic=/livox/lidar,/cloud_registered,/cloud_registered_body,/mid360 global_path_topic=/planned_path cmd_vel_topic=/cmd_vel_nav robot_model=ground_omni max_vel_x=0.200 max_vel_y=0.100 max_yaw_rate=1.000 local_map_radius=5.000 inflation_radius=0.350 cloud_processing_frequency=10.000 visualization_frequency=2.000 performance_topic=/local_planner/performance corner_safety_enabled=true obstacle_speed_scaling_enabled=true
+[2026-07-06 13:50:55.258] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.000 linear.y=0.000 angular.z=0.000 reason=no_global_path
+[2026-07-06 13:50:55.258] [WARN] [GLOBAL_PATH_LOST] no valid global path in replan
+[2026-07-06 13:50:55.660] [INFO] [CLOUD] static cloud received raw_point_count=554013 filtered_point_count=554013 cloud_frame=map cloud_age=0.288 local_map_points=33304
+[2026-07-06 13:50:55.738] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=33304 trajectory_valid=false min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 13:50:57.242] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=33304 trajectory_valid=false min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 13:50:57.245] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=68.824 visualization_hz=3.933 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=0.012 avg_visualization_time_ms=3.335 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=WAITING_FOR_PATH
+[2026-07-06 13:50:57.258] [WARN] [GLOBAL_PATH_LOST] no valid global path in replan
+[2026-07-06 13:50:58.227] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=40.744 visualization_hz=2.037 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=0.012 avg_visualization_time_ms=3.109 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=WAITING_FOR_PATH
+[2026-07-06 13:50:58.742] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=33304 trajectory_valid=false min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 13:50:59.238] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=39.564 visualization_hz=1.978 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=0.012 avg_visualization_time_ms=3.095 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=WAITING_FOR_PATH
+[2026-07-06 13:50:59.258] [WARN] [GLOBAL_PATH_LOST] no valid global path in replan
+[2026-07-06 13:51:00.229] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=33304 trajectory_valid=false min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 13:51:00.233] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=40.202 visualization_hz=2.010 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=0.010 avg_visualization_time_ms=3.108 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=WAITING_FOR_PATH
+[2026-07-06 13:51:00.742] [INFO] [PATH] new global path received frame_id=map stored_frame=map path_size=4 first_point=(-1.500,3.200,0.000) last_point=(-1.000,3.200,0.000) path_length=0.500 min_z=0.000 max_z=0.000
+[2026-07-06 13:51:00.742] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path path_size=4
+[2026-07-06 13:51:00.742] [INFO] [STATE] from=WAITING_FOR_PATH to=REPLAN reason=new_global_path
+[2026-07-06 13:51:00.777] [INFO] [STATE] from=REPLAN to=PLANNING reason=new_global_path
+[2026-07-06 13:51:00.777] [INFO] [LOCAL_TARGET] local target updated target=(-1.000,3.200,0.000) nearest_path_index=0 lookahead_distance=0.500 distance_to_final_goal=0.500
+[2026-07-06 13:51:00.777] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path current_pose=(-1.500,3.200,0.000) current_yaw=0.000 local_target=(-1.000,3.200,0.000) previous_trajectory_valid=false collision_detected=false dynamic_obstacle_detected=false
+[2026-07-06 13:51:00.786] [INFO] [PLAN_SUCCESS] planning_time_ms=0.090 trajectory_points=4 trajectory_duration=2.500 trajectory_length=0.500 min_obstacle_distance=0.451 tracking_error=0.000
+[2026-07-06 13:51:00.786] [INFO] [STATE] from=PLANNING to=TRACKING reason=plan_success
+[2026-07-06 13:51:00.809] [WARN] [MIN_EXECUTABLE_SPEED] boosted safe command to executable threshold cmd=(0.080,0.000,0.000)
+[2026-07-06 13:51:00.809] [WARN] [TANGENT_ESCAPE] near_obstacle_distance=0.451195 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:00.809] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.120 linear.y=0.000 angular.z=0.000 reason=tracking
+[2026-07-06 13:51:01.260] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:01.263] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.971 control_cmd_hz=29.119 visualization_hz=1.941 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.090 avg_control_time_ms=11.239 avg_visualization_time_ms=3.115 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:02.265] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:02.268] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=19.894 visualization_hz=1.989 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=23.247 avg_visualization_time_ms=3.122 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:02.844] [WARN] [TANGENT_ESCAPE] near_obstacle_distance=0.451195 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:02.844] [WARN] [LOW_SPEED_STUCK] elapsed=2.035278 progress=0.000000 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:02.844] [WARN] [RECOVERY_TRIGGERED] state=TRACKING last_plan_failure=""
+[2026-07-06 13:51:02.844] [INFO] [RECOVERY_SUCCESS] cmd=(-0.120,0.000,0.000)
+[2026-07-06 13:51:02.844] [INFO] [CMD_VEL] cmd_vel changed linear.x=-0.120 linear.y=0.000 angular.z=0.000 reason=recovery
+[2026-07-06 13:51:02.844] [INFO] [STATE] from=TRACKING to=REPLAN reason=recovery_stuck
+[2026-07-06 13:51:02.891] [WARN] [MIN_EXECUTABLE_SPEED] boosted safe command to executable threshold cmd=(-0.080,0.000,0.000)
+[2026-07-06 13:51:02.891] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.120 linear.y=0.000 angular.z=0.000 reason=tracking
+[2026-07-06 13:51:02.891] [INFO] [STATE] from=REPLAN to=TRACKING reason=tracking_command
+[2026-07-06 13:51:03.258] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=20.214 visualization_hz=2.021 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=23.352 avg_visualization_time_ms=3.131 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:03.765] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:04.258] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=19.998 visualization_hz=2.000 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=23.251 avg_visualization_time_ms=3.104 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:04.765] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:04.891] [WARN] [TANGENT_ESCAPE] near_obstacle_distance=0.451195 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:04.891] [WARN] [LOW_SPEED_STUCK] elapsed=2.000207 progress=0.000000 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:04.891] [WARN] [RECOVERY_TRIGGERED] state=TRACKING last_plan_failure=""
+[2026-07-06 13:51:04.891] [INFO] [RECOVERY_SUCCESS] cmd=(-0.120,0.000,0.000)
+[2026-07-06 13:51:04.891] [INFO] [CMD_VEL] cmd_vel changed linear.x=-0.120 linear.y=0.000 angular.z=0.000 reason=recovery
+[2026-07-06 13:51:04.891] [INFO] [STATE] from=TRACKING to=REPLAN reason=recovery_stuck
+[2026-07-06 13:51:04.944] [WARN] [MIN_EXECUTABLE_SPEED] boosted safe command to executable threshold cmd=(-0.080,0.000,0.000)
+[2026-07-06 13:51:04.944] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.120 linear.y=0.000 angular.z=0.000 reason=tracking
+[2026-07-06 13:51:04.944] [INFO] [STATE] from=REPLAN to=TRACKING reason=tracking_command
+[2026-07-06 13:51:05.258] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=20.000 visualization_hz=2.000 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=23.244 avg_visualization_time_ms=3.161 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:05.765] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:06.254] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=20.068 visualization_hz=2.007 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=22.982 avg_visualization_time_ms=3.231 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:06.892] [WARN] [TANGENT_ESCAPE] near_obstacle_distance=0.451195 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:06.993] [WARN] [LOW_SPEED_STUCK] elapsed=2.048649 progress=0.000000 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:06.993] [WARN] [RECOVERY_TRIGGERED] state=TRACKING last_plan_failure=""
+[2026-07-06 13:51:06.993] [INFO] [RECOVERY_SUCCESS] cmd=(-0.120,0.000,0.000)
+[2026-07-06 13:51:06.993] [INFO] [CMD_VEL] cmd_vel changed linear.x=-0.120 linear.y=0.000 angular.z=0.000 reason=recovery
+[2026-07-06 13:51:06.993] [INFO] [STATE] from=TRACKING to=REPLAN reason=recovery_stuck
+[2026-07-06 13:51:07.042] [WARN] [MIN_EXECUTABLE_SPEED] boosted safe command to executable threshold cmd=(-0.080,0.000,0.000)
+[2026-07-06 13:51:07.042] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.120 linear.y=0.000 angular.z=0.000 reason=tracking
+[2026-07-06 13:51:07.042] [INFO] [STATE] from=REPLAN to=TRACKING reason=tracking_command
+[2026-07-06 13:51:07.264] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:07.267] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=19.741 visualization_hz=1.974 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=24.173 avg_visualization_time_ms=3.147 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:08.254] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=20.264 visualization_hz=2.026 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=23.876 avg_visualization_time_ms=3.146 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:08.760] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:08.897] [WARN] [TANGENT_ESCAPE] near_obstacle_distance=0.451195 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:09.092] [WARN] [LOW_SPEED_STUCK] elapsed=2.050238 progress=0.000000 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:09.092] [WARN] [RECOVERY_TRIGGERED] state=TRACKING last_plan_failure=""
+[2026-07-06 13:51:09.092] [INFO] [RECOVERY_SUCCESS] cmd=(-0.120,0.000,0.000)
+[2026-07-06 13:51:09.092] [INFO] [CMD_VEL] cmd_vel changed linear.x=-0.120 linear.y=0.000 angular.z=0.000 reason=recovery
+[2026-07-06 13:51:09.092] [INFO] [STATE] from=TRACKING to=REPLAN reason=recovery_stuck
+[2026-07-06 13:51:09.142] [WARN] [MIN_EXECUTABLE_SPEED] boosted safe command to executable threshold cmd=(-0.080,0.000,0.000)
+[2026-07-06 13:51:09.142] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.120 linear.y=0.000 angular.z=0.000 reason=tracking
+[2026-07-06 13:51:09.142] [INFO] [STATE] from=REPLAN to=TRACKING reason=tracking_command
+[2026-07-06 13:51:09.254] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=20.004 visualization_hz=2.000 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=23.959 avg_visualization_time_ms=3.096 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:09.761] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:10.254] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=19.997 visualization_hz=2.000 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=24.115 avg_visualization_time_ms=3.157 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:10.910] [WARN] [TANGENT_ESCAPE] near_obstacle_distance=0.451195 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:11.142] [WARN] [LOW_SPEED_STUCK] elapsed=2.000386 progress=0.000000 cmd=(0.120,0.000,0.000)
+[2026-07-06 13:51:11.142] [WARN] [RECOVERY_TRIGGERED] state=TRACKING last_plan_failure=""
+[2026-07-06 13:51:11.143] [INFO] [RECOVERY_SUCCESS] cmd=(-0.120,0.000,0.000)
+[2026-07-06 13:51:11.143] [INFO] [CMD_VEL] cmd_vel changed linear.x=-0.120 linear.y=0.000 angular.z=0.000 reason=recovery
+[2026-07-06 13:51:11.143] [INFO] [STATE] from=TRACKING to=REPLAN reason=recovery_stuck
+[2026-07-06 13:51:11.192] [WARN] [MIN_EXECUTABLE_SPEED] boosted safe command to executable threshold cmd=(-0.080,0.000,0.000)
+[2026-07-06 13:51:11.192] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.120 linear.y=0.000 angular.z=0.000 reason=tracking
+[2026-07-06 13:51:11.192] [INFO] [STATE] from=REPLAN to=TRACKING reason=tracking_command
+[2026-07-06 13:51:11.260] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:11.263] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=19.821 visualization_hz=1.982 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=23.988 avg_visualization_time_ms=3.096 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING
+[2026-07-06 13:51:12.261] [INFO] [SUMMARY] state=TRACKING current_pose=(-1.500,3.200,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(-1.000,3.200,0.000) path_size=4 local_map_points=33304 trajectory_valid=true min_obstacle_distance=0.451 tracking_error=0.000 cmd_vel_nav=(0.120,0.000,0.000) replan_count=1 collision_count=0
+[2026-07-06 13:51:12.264] [INFO] [PERFORMANCE_SUMMARY] cloud_input_hz=0.000 cloud_processed_hz=0.000 planning_hz=0.000 control_cmd_hz=19.993 visualization_hz=1.999 avg_cloud_process_time_ms=0.000 avg_planning_time_ms=0.000 avg_control_time_ms=22.747 avg_visualization_time_ms=3.172 last_cloud_process_time_ms=0.000 dropped_cloud_count=0 local_map_points=33304 occupied_voxels=24958 state=TRACKING

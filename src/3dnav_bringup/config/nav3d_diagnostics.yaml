@@ -1,0 +1,62 @@
+nav3d_system_diagnostics_node:
+  ros__parameters:
+    diagnostics_enabled: true
+
+    log_dir: "debug/logs/diagnostics"
+    log_file_prefix: "nav3d_diagnostics"
+
+    check_duration_sec: 5.0
+    startup_check_delay_sec: 2.0
+    monitor_frequency: 1.0
+
+    required_topics:
+      - "/planned_path"
+      - "/cmd_vel_nav"
+      - "/cmd_vel"
+      - "/nav3d/execution_state"
+
+    sensor_topics:
+      lidar:
+        topic: "/livox/lidar"
+        min_ok_hz: 8.0
+        min_required_hz: 5.0
+        expected_hz: 10.0
+
+    perception_topics:
+      local_cloud:
+        topic: "/local_obstacle_cloud_filtered"
+        min_ok_hz: 8.0
+        min_required_hz: 5.0
+
+    planner_topics:
+      global_path:
+        topic: "/planned_path"
+        min_ok_hz: 0.1
+        min_required_hz: 0.0
+
+      local_trajectory:
+        topic: "/local_planner/local_trajectory_marker"
+        min_ok_hz: 1.0
+        min_required_hz: 0.5
+
+    control_topics:
+      cmd_vel_nav:
+        topic: "/cmd_vel_nav"
+        min_ok_hz: 10.0
+        min_required_hz: 5.0
+
+      cmd_vel:
+        topic: "/cmd_vel"
+        min_ok_hz: 10.0
+        min_required_hz: 5.0
+
+    required_tfs:
+      - parent: "map"
+        child: "odom"
+      - parent: "odom"
+        child: "base_link"
+      - parent: "base_link"
+        child: "livox_frame"
+
+    warn_lidar_hz_below: 8.0
+    error_lidar_hz_below: 5.0

@@ -155,6 +155,32 @@ def _launch_setup(context, *args, **kwargs):
         )
 
     actions.extend([
+        LogInfo(
+            msg="[3dnav_bringup] diagnostics enabled",
+            condition=IfCondition(arg("diagnostics")),
+        ),
+        LogInfo(
+            msg="[3dnav_bringup] local planner performance monitor enabled",
+            condition=IfCondition(arg("local_planning")),
+        ),
+        Node(
+            package="nav3d_diagnostics",
+            executable="nav3d_system_diagnostics_node",
+            name="nav3d_system_diagnostics_node",
+            output="screen",
+            parameters=[
+                {
+                    "config_file": package_file(
+                        "nav3d_bringup", "config", "nav3d_diagnostics.yaml"
+                    ),
+                    "use_sim_time": _as_bool(arg("use_sim_time")),
+                }
+            ],
+            condition=IfCondition(arg("diagnostics")),
+        ),
+    ])
+
+    actions.extend([
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(package_file("nav3d_bringup", "launch", "localization_impl.launch.py")),
             launch_arguments={
@@ -200,6 +226,7 @@ def generate_launch_description():
         DeclareLaunchArgument("global_planning", default_value="true"),
         DeclareLaunchArgument("local_planning", default_value="true"),
         DeclareLaunchArgument("robot_api", default_value="true"),
+        DeclareLaunchArgument("diagnostics", default_value="true"),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("start_livox_driver", default_value="true"),
         DeclareLaunchArgument("start_fastlio", default_value="true"),

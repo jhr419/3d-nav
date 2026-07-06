@@ -29,6 +29,7 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/vector3.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -277,6 +278,27 @@ struct Trajectory
   std::vector<Eigen::Vector3d> points;
   rclcpp::Time stamp;
   bool collision_free{false};
+};
+
+struct CornerRiskState
+{
+  bool active{false};
+  double severity{0.0};
+  double distance{std::numeric_limits<double>::infinity()};
+  Eigen::Vector3d point{Eigen::Vector3d::Zero()};
+  std::string reason;
+  std::vector<Eigen::Vector3d> marker_points;
+};
+
+struct ObstacleDistances
+{
+  double min{std::numeric_limits<double>::infinity()};
+  double front{std::numeric_limits<double>::infinity()};
+  double rear{std::numeric_limits<double>::infinity()};
+  double left{std::numeric_limits<double>::infinity()};
+  double right{std::numeric_limits<double>::infinity()};
+  Eigen::Vector3d nearest_point{Eigen::Vector3d::Zero()};
+  bool has_nearest{false};
 };
 
 struct LocalPlannerLoggingConfig
@@ -798,9 +820,11 @@ public:
     global_path_sub_ = create_subscription<nav_msgs::msg::Path>(
       global_path_topic_, rclcpp::QoS(1),
       std::bind(&EgoLocalPlannerNode::globalPathCallback, this, std::placeholders::_1));
+    const auto dynamic_cloud_qos = pointcloud_qos_ == "sensor_data" ?
+      rclcpp::QoS(rclcpp::SensorDataQoS()) : rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
     for (const auto & topic : pointcloud_topics_) {
       pointcloud_subs_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
-        topic, rclcpp::SensorDataQoS(),
+        topic, dynamic_cloud_qos,
         [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
           pointCloudCallback(msg, false);
         }));
@@ -840,7 +864,17 @@ public:
       footprint_marker_topic_, rclcpp::QoS(1));
     cmd_vel_marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
       cmd_vel_marker_topic_, rclcpp::QoS(1));
+    performance_pub_ = create_publisher<std_msgs::msg::String>(
+      performance_topic_, rclcpp::QoS(1));
+    performance_marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+      performance_marker_topic_, rclcpp::QoS(1));
+    corner_risk_marker_pub_ =
+      create_publisher<visualization_msgs::msg::MarkerArray>(
+      corner_risk_marker_topic_, rclcpp::QoS(1));
 
+    cloud_processing_timer_ = create_wall_timer(
+      periodFromFrequency(cloud_processing_frequency_).to_chrono<std::chrono::nanoseconds>(),
+      std::bind(&EgoLocalPlannerNode::cloudProcessingCallback, this));
     replan_timer_ = create_wall_timer(
       periodFromFrequency(replan_frequency_).to_chrono<std::chrono::nanoseconds>(),
       std::bind(&EgoLocalPlannerNode::replanCallback, this));
@@ -851,6 +885,10 @@ public:
       periodFromFrequency(collision_check_frequency_).to_chrono<std::chrono::nanoseconds>(),
       std::bind(&EgoLocalPlannerNode::collisionCallback, this));
     debug_timer_ = create_wall_timer(500ms, std::bind(&EgoLocalPlannerNode::debugCallback, this));
+    visualization_timer_ = create_wall_timer(
+      periodFromFrequency(visualization_publish_frequency_).to_chrono<std::chrono::nanoseconds>(),
+      std::bind(&EgoLocalPlannerNode::visualizationCallback, this));
+    performance_timer_ = create_wall_timer(1s, std::bind(&EgoLocalPlannerNode::performanceCallback, this));
 
     setStatus("WAITING_FOR_PATH", "startup");
     logStartupInfo();
@@ -859,6 +897,18 @@ public:
       "EGO local planner adapter ready: path=%s clouds=%s cmd=%s",
       global_path_topic_.c_str(), joinTopicList(pointcloud_topics_).c_str(),
       cmd_vel_topic_.c_str());
+    RCLCPP_INFO(
+      get_logger(),
+      "local planner performance monitor enabled: cloud_processing=%.1fHz visualization=%.1fHz",
+      cloud_processing_frequency_, visualization_publish_frequency_);
+    if (heavy_debug_visualization_enabled_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "heavy debug visualization is enabled and may affect local planner performance.");
+      local_logger_.logWarn(
+        "HEAVY_DEBUG_VISUALIZATION",
+        "heavy debug visualization enabled; RViz marker volume may affect performance");
+    }
     if (!static_pointcloud_topics_.empty()) {
       RCLCPP_INFO(
         get_logger(),
@@ -972,6 +1022,48 @@ private:
     declare_parameter<bool>("debug_visualization_enabled", true);
     declare_parameter<double>("footprint_height", 0.55);
     declare_parameter<double>("static_map_update_distance", 0.25);
+
+    declare_parameter<std::string>("pointcloud_qos", "sensor_data");
+    declare_parameter<bool>("keep_latest_cloud_only", true);
+    declare_parameter<bool>("drop_old_cloud_if_busy", true);
+    declare_parameter<double>("cloud_processing_frequency", 10.0);
+    declare_parameter<double>("max_cloud_processing_time_ms", 50.0);
+    declare_parameter<double>("voxel_leaf_size", 0.10);
+    declare_parameter<int>("max_local_cloud_points", 30000);
+
+    declare_parameter<bool>("visualization_enabled", true);
+    declare_parameter<double>("visualization_publish_frequency", 2.0);
+    declare_parameter<bool>("heavy_debug_visualization_enabled", false);
+    declare_parameter<int>("max_marker_points", 5000);
+    declare_parameter<int>("max_candidate_trajectories_visualized", 20);
+    declare_parameter<std::string>("performance_topic", "/local_planner/performance");
+    declare_parameter<std::string>(
+      "performance_marker_topic", "/local_planner/performance_marker");
+    declare_parameter<std::string>(
+      "corner_risk_marker_topic", "/local_planner/corner_risk_marker");
+
+    declare_parameter<bool>("corner_safety_enabled", true);
+    declare_parameter<double>("corner_detect_distance", 1.2);
+    declare_parameter<double>("corner_slowdown_distance", 1.0);
+    declare_parameter<double>("corner_min_clearance", 0.45);
+    declare_parameter<double>("corner_preferred_clearance", 0.75);
+    declare_parameter<double>("corner_speed_scale", 0.45);
+    declare_parameter<double>("corner_lookahead_shorten_factor", 0.5);
+    declare_parameter<bool>("avoid_cutting_corners", true);
+
+    declare_parameter<bool>("obstacle_speed_scaling_enabled", true);
+    declare_parameter<double>("min_executable_vx", 0.08);
+    declare_parameter<double>("min_executable_vy", 0.08);
+    declare_parameter<double>("min_executable_wz", 0.15);
+    declare_parameter<bool>("allow_tangent_escape_near_obstacle", true);
+    declare_parameter<double>("tangent_escape_speed", 0.12);
+    declare_parameter<bool>("stuck_detection_enabled", true);
+    declare_parameter<double>("stuck_time_threshold", 2.0);
+    declare_parameter<double>("min_progress_distance", 0.05);
+    declare_parameter<bool>("recovery_enabled", true);
+    declare_parameter<double>("recovery_reverse_speed", -0.12);
+    declare_parameter<double>("recovery_lateral_speed", 0.12);
+    declare_parameter<double>("recovery_yaw_rate", 0.35);
 
     declare_parameter<bool>("local_planner_logging.enabled", true);
     declare_parameter<std::string>("local_planner_logging.log_dir", "debug/logs/local_planner");
@@ -1139,6 +1231,67 @@ private:
     static_map_update_distance_ =
       std::max(0.05, get_parameter("static_map_update_distance").as_double());
 
+    pointcloud_qos_ = lowerString(get_parameter("pointcloud_qos").as_string());
+    keep_latest_cloud_only_ = get_parameter("keep_latest_cloud_only").as_bool();
+    drop_old_cloud_if_busy_ = get_parameter("drop_old_cloud_if_busy").as_bool();
+    cloud_processing_frequency_ =
+      std::max(0.5, get_parameter("cloud_processing_frequency").as_double());
+    max_cloud_processing_time_ms_ =
+      std::max(1.0, get_parameter("max_cloud_processing_time_ms").as_double());
+    voxel_leaf_size_ = std::max(0.02, get_parameter("voxel_leaf_size").as_double());
+    max_local_cloud_points_ =
+      std::max(1000, static_cast<int>(get_parameter("max_local_cloud_points").as_int()));
+
+    visualization_enabled_ = get_parameter("visualization_enabled").as_bool();
+    visualization_publish_frequency_ =
+      std::max(0.2, get_parameter("visualization_publish_frequency").as_double());
+    heavy_debug_visualization_enabled_ =
+      get_parameter("heavy_debug_visualization_enabled").as_bool();
+    max_marker_points_ =
+      std::max(100, static_cast<int>(get_parameter("max_marker_points").as_int()));
+    max_candidate_trajectories_visualized_ = std::max(
+      1, static_cast<int>(get_parameter("max_candidate_trajectories_visualized").as_int()));
+    performance_topic_ = get_parameter("performance_topic").as_string();
+    performance_marker_topic_ = get_parameter("performance_marker_topic").as_string();
+    corner_risk_marker_topic_ = get_parameter("corner_risk_marker_topic").as_string();
+
+    corner_safety_enabled_ = get_parameter("corner_safety_enabled").as_bool();
+    corner_detect_distance_ =
+      std::max(0.2, get_parameter("corner_detect_distance").as_double());
+    corner_slowdown_distance_ =
+      std::max(0.2, get_parameter("corner_slowdown_distance").as_double());
+    corner_min_clearance_ =
+      std::max(0.0, get_parameter("corner_min_clearance").as_double());
+    corner_preferred_clearance_ = std::max(
+      corner_min_clearance_, get_parameter("corner_preferred_clearance").as_double());
+    corner_speed_scale_ = clamp(get_parameter("corner_speed_scale").as_double(), 0.05, 1.0);
+    corner_lookahead_shorten_factor_ = clamp(
+      get_parameter("corner_lookahead_shorten_factor").as_double(), 0.1, 1.0);
+    avoid_cutting_corners_ = get_parameter("avoid_cutting_corners").as_bool();
+    if (corner_safety_enabled_) {
+      min_local_clearance_ = std::max(min_local_clearance_, corner_min_clearance_);
+      preferred_local_clearance_ = std::max(preferred_local_clearance_, corner_preferred_clearance_);
+    }
+
+    obstacle_speed_scaling_enabled_ =
+      get_parameter("obstacle_speed_scaling_enabled").as_bool();
+    min_executable_vx_ = std::max(0.0, get_parameter("min_executable_vx").as_double());
+    min_executable_vy_ = std::max(0.0, get_parameter("min_executable_vy").as_double());
+    min_executable_wz_ = std::max(0.0, get_parameter("min_executable_wz").as_double());
+    allow_tangent_escape_near_obstacle_ =
+      get_parameter("allow_tangent_escape_near_obstacle").as_bool();
+    tangent_escape_speed_ =
+      std::max(0.0, get_parameter("tangent_escape_speed").as_double());
+    stuck_detection_enabled_ = get_parameter("stuck_detection_enabled").as_bool();
+    stuck_time_threshold_ =
+      std::max(0.1, get_parameter("stuck_time_threshold").as_double());
+    min_progress_distance_ =
+      std::max(0.0, get_parameter("min_progress_distance").as_double());
+    recovery_enabled_ = get_parameter("recovery_enabled").as_bool();
+    recovery_reverse_speed_ = get_parameter("recovery_reverse_speed").as_double();
+    recovery_lateral_speed_ = get_parameter("recovery_lateral_speed").as_double();
+    recovery_yaw_rate_ = get_parameter("recovery_yaw_rate").as_double();
+
     logging_config_.enabled = get_parameter("local_planner_logging.enabled").as_bool();
     logging_config_.log_dir = get_parameter("local_planner_logging.log_dir").as_string();
     logging_config_.log_file_prefix =
@@ -1211,6 +1364,12 @@ private:
     ss << " max_yaw_rate=" << max_yaw_rate_;
     ss << " local_map_radius=" << local_map_radius_;
     ss << " inflation_radius=" << inflation_radius_;
+    ss << " cloud_processing_frequency=" << cloud_processing_frequency_;
+    ss << " visualization_frequency=" << visualization_publish_frequency_;
+    ss << " performance_topic=" << performance_topic_;
+    ss << " corner_safety_enabled=" << (corner_safety_enabled_ ? "true" : "false");
+    ss << " obstacle_speed_scaling_enabled=" <<
+      (obstacle_speed_scaling_enabled_ ? "true" : "false");
     local_logger_.logStartup(ss.str());
   }
 
@@ -1335,51 +1494,91 @@ private:
   {
     const std::size_t raw_point_count =
       static_cast<std::size_t>(msg->width) * static_cast<std::size_t>(msg->height);
+
+    if (!static_cloud) {
+      ++cloud_input_count_window_;
+      latest_dynamic_cloud_ = msg;
+      latest_dynamic_cloud_received_time_ = now();
+      has_pending_dynamic_cloud_ = true;
+      if (cloud_processing_busy_ && drop_old_cloud_if_busy_) {
+        ++dropped_cloud_count_;
+      }
+      return;
+    }
+
     geometry_msgs::msg::TransformStamped cloud_to_map;
     bool need_transform = false;
     if (!resolveCloudTransform(*msg, cloud_to_map, need_transform)) {
       return;
     }
 
-    if (static_cloud) {
-      static_map_points_.clear();
-      static_map_points_.reserve(msg->width * msg->height);
+    static_map_points_.clear();
+    static_map_points_.reserve(msg->width * msg->height);
 
-      sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
-      sensor_msgs::PointCloud2ConstIterator<float> iter_y(*msg, "y");
-      sensor_msgs::PointCloud2ConstIterator<float> iter_z(*msg, "z");
-      for (; iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z) {
-        Eigen::Vector3d point(*iter_x, *iter_y, *iter_z);
-        if (!std::isfinite(point.x()) || !std::isfinite(point.y()) || !std::isfinite(point.z())) {
-          continue;
-        }
-        if (need_transform) {
-          point = transformPoint(cloud_to_map, point);
-        }
-        static_map_points_.push_back(point);
+    sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
+    sensor_msgs::PointCloud2ConstIterator<float> iter_y(*msg, "y");
+    sensor_msgs::PointCloud2ConstIterator<float> iter_z(*msg, "z");
+    for (; iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z) {
+      Eigen::Vector3d point(*iter_x, *iter_y, *iter_z);
+      if (!std::isfinite(point.x()) || !std::isfinite(point.y()) || !std::isfinite(point.z())) {
+        continue;
       }
-
-      has_static_map_ = !static_map_points_.empty();
-      needs_replan_ = true;
-      RCLCPP_INFO(
-        get_logger(),
-        "Loaded static obstacle cloud for EGO local planner: %zu points",
-        static_map_points_.size());
-
-      Pose3D base_pose;
-      if (getCurrentPose(base_pose)) {
-        rebuildLocalObstacleMap(base_pose, true);
-        publishLocalMap();
+      if (need_transform) {
+        point = transformPoint(cloud_to_map, point);
       }
-      std::ostringstream cloud_log;
-      cloud_log << std::fixed << std::setprecision(3)
-                << "static cloud received"
-                << " raw_point_count=" << raw_point_count
-                << " filtered_point_count=" << static_map_points_.size()
-                << " cloud_frame=" << (msg->header.frame_id.empty() ? lidar_frame_ : msg->header.frame_id)
-                << " cloud_age=" << cloudAgeSec(*msg)
-                << " local_map_points=" << raw_obstacle_points_.size();
-      local_logger_.logCloudStatus(cloud_log.str());
+      static_map_points_.push_back(point);
+    }
+
+    has_static_map_ = !static_map_points_.empty();
+    needs_replan_ = true;
+    RCLCPP_INFO(
+      get_logger(),
+      "Loaded static obstacle cloud for EGO local planner: %zu points",
+      static_map_points_.size());
+
+    Pose3D base_pose;
+    if (getCurrentPose(base_pose)) {
+      rebuildLocalObstacleMap(base_pose, true);
+    }
+    std::ostringstream cloud_log;
+    cloud_log << std::fixed << std::setprecision(3)
+              << "static cloud received"
+              << " raw_point_count=" << raw_point_count
+              << " filtered_point_count=" << static_map_points_.size()
+              << " cloud_frame=" << (msg->header.frame_id.empty() ? lidar_frame_ : msg->header.frame_id)
+              << " cloud_age=" << cloudAgeSec(*msg)
+              << " local_map_points=" << raw_obstacle_points_.size();
+    local_logger_.logCloudStatus(cloud_log.str());
+  }
+
+  void cloudProcessingCallback()
+  {
+    if (cloud_processing_busy_) {
+      return;
+    }
+    if (!has_pending_dynamic_cloud_ || !latest_dynamic_cloud_) {
+      return;
+    }
+
+    cloud_processing_busy_ = true;
+    const auto processing_guard = std::unique_ptr<bool, std::function<void(bool *)>>(
+      &cloud_processing_busy_,
+      [](bool * busy) {
+        *busy = false;
+      });
+    (void)processing_guard;
+    const auto msg = latest_dynamic_cloud_;
+    if (keep_latest_cloud_only_) {
+      has_pending_dynamic_cloud_ = false;
+    }
+
+    const std::size_t raw_point_count =
+      static_cast<std::size_t>(msg->width) * static_cast<std::size_t>(msg->height);
+    const auto processing_start = std::chrono::steady_clock::now();
+
+    geometry_msgs::msg::TransformStamped cloud_to_map;
+    bool need_transform = false;
+    if (!resolveCloudTransform(*msg, cloud_to_map, need_transform)) {
       return;
     }
 
@@ -1399,8 +1598,10 @@ private:
 
     std::unordered_set<VoxelKey, VoxelKeyHash> occupied_voxels;
     std::unordered_set<GridKey, GridKeyHash> occupied_xy;
+    std::unordered_set<VoxelKey, VoxelKeyHash> downsampled_voxels;
     std::vector<Eigen::Vector3d> raw_points;
-    raw_points.reserve(msg->width * msg->height);
+    raw_points.reserve(std::min<std::size_t>(
+      raw_point_count, static_cast<std::size_t>(max_local_cloud_points_)));
 
     sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
     sensor_msgs::PointCloud2ConstIterator<float> iter_y(*msg, "y");
@@ -1438,6 +1639,19 @@ private:
         }
       }
 
+      const VoxelKey leaf_key{
+        static_cast<int>(std::floor(point.x() / voxel_leaf_size_)),
+        static_cast<int>(std::floor(point.y() / voxel_leaf_size_)),
+        static_cast<int>(std::floor(point.z() / voxel_leaf_size_)),
+      };
+      if (downsampled_voxels.find(leaf_key) != downsampled_voxels.end()) {
+        continue;
+      }
+      downsampled_voxels.insert(leaf_key);
+      if (raw_points.size() >= static_cast<std::size_t>(max_local_cloud_points_)) {
+        continue;
+      }
+
       raw_points.push_back(point);
       insertInflatedPoint(point, occupied_voxels, occupied_xy);
     }
@@ -1453,13 +1667,27 @@ private:
     }
 
     rebuildLocalObstacleMap(base_pose, true);
-    publishLocalMap();
+    ++cloud_processed_count_window_;
+    const double processing_time_ms = std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - processing_start).count();
+    cloud_process_time_sum_ms_window_ += processing_time_ms;
+    last_cloud_process_time_ms_ = processing_time_ms;
+    if (processing_time_ms > max_cloud_processing_time_ms_) {
+      local_logger_.logWarningThrottled(
+        "cloud_processing_slow",
+        "CLOUD_PROCESSING_SLOW",
+        "cloud_process_time_ms=" + std::to_string(processing_time_ms) +
+        " max_cloud_processing_time_ms=" + std::to_string(max_cloud_processing_time_ms_),
+        logging_config_.repeated_warning_throttle_sec);
+    }
     if (shouldLogCloudStatus(dynamic_raw_obstacle_points_.size())) {
       std::ostringstream cloud_log;
       cloud_log << std::fixed << std::setprecision(3)
                 << "cloud received"
                 << " raw_point_count=" << raw_point_count
                 << " filtered_point_count=" << dynamic_raw_obstacle_points_.size()
+                << " voxel_leaf_size=" << voxel_leaf_size_
+                << " process_time_ms=" << processing_time_ms
                 << " cloud_frame=" << (msg->header.frame_id.empty() ? lidar_frame_ : msg->header.frame_id)
                 << " cloud_age=" << cloudAgeSec(*msg)
                 << " local_map_points=" << raw_obstacle_points_.size()
@@ -1676,6 +1904,17 @@ private:
       return;
     }
 
+    last_corner_risk_ = detectCornerRisk(current_pose);
+    if (last_corner_risk_.active) {
+      local_logger_.logWarningThrottled(
+        "corner_risk_detected",
+        "CORNER_RISK_DETECTED",
+        "reason=" + last_corner_risk_.reason +
+        " distance=" + std::to_string(last_corner_risk_.distance) +
+        " severity=" + std::to_string(last_corner_risk_.severity),
+        logging_config_.repeated_warning_throttle_sec);
+    }
+
     const bool path_blocked = replan_when_path_blocked_ &&
       isPathBlocked(current_pose.position, path_block_check_distance_);
     const bool trajectory_blocked = !active_traj_.points.empty() &&
@@ -1737,6 +1976,8 @@ private:
     const bool plan_ok = planLocalTrajectory(current_pose.position, local_target, new_traj);
     const double planning_time_ms = std::chrono::duration<double, std::milli>(
       std::chrono::steady_clock::now() - planning_start).count();
+    ++planning_count_window_;
+    planning_time_sum_ms_window_ += planning_time_ms;
     const double min_obstacle_distance = minObstacleDistance(current_pose.position);
     const double tracking_error = distanceToGlobalPath(current_pose.position.head<2>());
 
@@ -1756,6 +1997,7 @@ private:
       active_traj_ = std::move(new_traj);
       active_traj_.stamp = now();
       needs_replan_ = false;
+      consecutive_plan_failures_ = 0;
       last_replan_reason_.clear();
       trajectory_collision_ = false;
       publishTrajectory(active_traj_);
@@ -1764,7 +2006,7 @@ private:
     }
 
     active_traj_.points.clear();
-    publishZeroCommand("plan_failed");
+    ++consecutive_plan_failures_;
     std::ostringstream fail_log;
     fail_log << std::fixed << std::setprecision(3)
              << "planning_time_ms=" << planning_time_ms
@@ -1785,10 +2027,29 @@ private:
       get_logger(), *get_clock(), 1000,
       "EGO local replan failed: %s. Waiting for a clear local corridor or global replan.",
       last_plan_failure_reason_.c_str());
+    if (consecutive_plan_failures_ >= 3) {
+      geometry_msgs::msg::Twist recovery_cmd;
+      if (computeRecoveryCommand(current_pose, recovery_cmd)) {
+        publishCommand(recovery_cmd, "recovery_plan_failed");
+        return;
+      }
+    }
+    publishZeroCommand("plan_failed");
   }
 
   void controlCallback()
   {
+    const auto control_start = std::chrono::steady_clock::now();
+    bool control_guard_token = true;
+    const auto control_guard = std::unique_ptr<bool, std::function<void(bool *)>>(
+      &control_guard_token,
+      [this, control_start](bool *) {
+        ++control_count_window_;
+        control_time_sum_ms_window_ += std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - control_start).count();
+      });
+    (void)control_guard;
+
     clearExpiredCloud();
 
     Pose3D current_pose;
@@ -1841,44 +2102,34 @@ private:
       return;
     }
 
-    const double min_obstacle_distance = minObstacleDistance(current_pose.position);
-    if (slow_down_near_obstacle_ && std::isfinite(min_obstacle_distance) &&
-      min_obstacle_distance <= obstacle_stop_distance_)
-    {
-      trajectory_collision_ = true;
-      needs_replan_ = true;
-      last_replan_reason_ = "obstacle_stop_distance";
-      if (local_logger_.logWarningThrottled(
-          "obstacle_stop_distance",
-          "COLLISION_RISK",
-          "obstacle inside stop distance min_obstacle_distance=" +
-          std::to_string(min_obstacle_distance) + " stop_distance=" +
-          std::to_string(obstacle_stop_distance_),
-          logging_config_.repeated_warning_throttle_sec))
-      {
-        ++collision_count_;
-      }
-      publishZeroCommand("obstacle_stop_distance");
-      setStatus("REPLAN", "obstacle_stop_distance");
-      return;
-    }
-
     cmd.linear.z = 0.0;
     cmd.angular.x = 0.0;
     cmd.angular.y = 0.0;
-    cmd = applyCommandLimits(cmd);
-    if (slow_down_near_obstacle_ && std::isfinite(min_obstacle_distance) &&
-      min_obstacle_distance < obstacle_slow_distance_ &&
-      obstacle_slow_distance_ > obstacle_stop_distance_)
-    {
-      const double scale = clamp(
-        (min_obstacle_distance - obstacle_stop_distance_) /
-        (obstacle_slow_distance_ - obstacle_stop_distance_),
-        0.0, 1.0);
-      cmd.linear.x *= scale;
-      cmd.linear.y *= scale;
-      cmd.angular.z *= std::max(0.35, scale);
+    last_corner_risk_ = detectCornerRisk(current_pose);
+    if (last_corner_risk_.active) {
+      local_logger_.logWarningThrottled(
+        "corner_risk_detected_control",
+        "CORNER_RISK_DETECTED",
+        "reason=" + last_corner_risk_.reason +
+        " distance=" + std::to_string(last_corner_risk_.distance) +
+        " severity=" + std::to_string(last_corner_risk_.severity),
+        logging_config_.repeated_warning_throttle_sec);
+      if (trajectoryMinObstacleDistance(active_traj_) < corner_min_clearance_) {
+        needs_replan_ = true;
+        last_replan_reason_ = "corner_clearance_too_low";
+      }
     }
+
+    const ObstacleDistances obstacle_distances = measureObstacleDistances(current_pose);
+    cmd = applyCommandLimits(cmd);
+    applyObstacleSpeedScaling(current_pose, obstacle_distances, cmd);
+    applyMinExecutableSpeed(current_pose, cmd);
+
+    geometry_msgs::msg::Twist escape_cmd;
+    if (tryTangentEscape(current_pose, obstacle_distances, cmd, escape_cmd)) {
+      cmd = escape_cmd;
+    }
+
     if (!isCommandCollisionFree(current_pose, cmd, cmd_collision_check_time_)) {
       bool found_safe_scale = false;
       for (const double scale : {0.5, 0.25, 0.1}) {
@@ -1886,6 +2137,7 @@ private:
         scaled.linear.x *= scale;
         scaled.linear.y *= scale;
         scaled.angular.z *= scale;
+        applyMinExecutableSpeed(current_pose, scaled);
         if (isCommandCollisionFree(current_pose, scaled, cmd_collision_check_time_)) {
           cmd = scaled;
           found_safe_scale = true;
@@ -1903,11 +2155,30 @@ private:
         {
           ++collision_count_;
         }
-        publishZeroCommand("cmd_collision");
-        setStatus("REPLAN", "cmd_collision");
+        geometry_msgs::msg::Twist recovery_cmd;
+        if (computeRecoveryCommand(current_pose, recovery_cmd)) {
+          publishCommand(recovery_cmd, "recovery");
+          setStatus("REPLAN", "recovery");
+        } else {
+          publishZeroCommand("cmd_collision");
+          setStatus("REPLAN", "cmd_collision");
+        }
         return;
       }
     }
+
+    if (updateStuckDetection(current_pose, cmd)) {
+      geometry_msgs::msg::Twist recovery_cmd;
+      if (computeRecoveryCommand(current_pose, recovery_cmd)) {
+        publishCommand(recovery_cmd, "recovery");
+        setStatus("REPLAN", "recovery_stuck");
+        return;
+      }
+      publishZeroCommand("recovery_failed");
+      setStatus("REPLAN", "recovery_failed");
+      return;
+    }
+
     publishCommand(cmd, "tracking");
     setStatus("TRACKING", "tracking_command");
   }
@@ -1996,17 +2267,49 @@ private:
     debug_pub_->publish(msg);
     maybeLogPeriodicSummary(pose, has_pose);
 
-    if (debug_visualization_enabled_ && has_pose) {
-      if (!active_traj_.points.empty() && !trajectory_collision_) {
-        publishTrajectory(active_traj_);
-        publishTargetMarker(last_local_target_);
-      }
-      publishFootprintMarker(pose);
-      publishCmdVelMarker(pose);
-      publishCollisionPointsMarker();
-      publishCandidateTrajectoriesMarker();
-      publishLocalMapMarker();
+  }
+
+  void visualizationCallback()
+  {
+    if (!visualization_enabled_ && !debug_visualization_enabled_) {
+      return;
     }
+
+    const auto vis_start = std::chrono::steady_clock::now();
+    Pose3D pose;
+    const bool has_pose = getCurrentPose(pose);
+    if (has_pose) {
+      rebuildLocalObstacleMap(pose, false);
+    }
+
+    publishPerformanceMarker(has_pose ? &pose : nullptr);
+    publishCornerRiskMarker();
+
+    if (!has_pose || !debug_visualization_enabled_) {
+      ++visualization_count_window_;
+      visualization_time_sum_ms_window_ += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - vis_start).count();
+      return;
+    }
+
+    publishLocalMap();
+    if (!active_traj_.points.empty() && !trajectory_collision_) {
+      publishTrajectory(active_traj_, true);
+      publishTargetMarker(last_local_target_, true);
+    } else {
+      publishTrajectory(active_traj_, true);
+    }
+    publishFootprintMarker(pose);
+    publishCmdVelMarker(pose);
+    publishCollisionPointsMarker();
+    publishLocalMapMarker();
+    if (heavy_debug_visualization_enabled_) {
+      publishCandidateTrajectoriesMarker();
+    }
+
+    ++visualization_count_window_;
+    visualization_time_sum_ms_window_ += std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - vis_start).count();
   }
 
   void maybeLogPeriodicSummary(const Pose3D & pose, bool has_pose)
@@ -2053,6 +2356,66 @@ private:
     ss << " replan_count=" << replan_count_;
     ss << " collision_count=" << collision_count_;
     local_logger_.logSummary(ss.str());
+  }
+
+  void performanceCallback()
+  {
+    const rclcpp::Time time_now = now();
+    if (!has_performance_window_time_) {
+      last_performance_window_time_ = time_now;
+      has_performance_window_time_ = true;
+      return;
+    }
+
+    const double elapsed = std::max(1.0e-3, (time_now - last_performance_window_time_).seconds());
+    last_performance_window_time_ = time_now;
+
+    cloud_input_hz_ = static_cast<double>(cloud_input_count_window_) / elapsed;
+    cloud_processed_hz_ = static_cast<double>(cloud_processed_count_window_) / elapsed;
+    planning_hz_ = static_cast<double>(planning_count_window_) / elapsed;
+    control_cmd_hz_ = static_cast<double>(control_cmd_count_window_) / elapsed;
+    visualization_hz_ = static_cast<double>(visualization_count_window_) / elapsed;
+    avg_cloud_process_time_ms_ = cloud_processed_count_window_ > 0 ?
+      cloud_process_time_sum_ms_window_ / static_cast<double>(cloud_processed_count_window_) : 0.0;
+    avg_planning_time_ms_ = planning_count_window_ > 0 ?
+      planning_time_sum_ms_window_ / static_cast<double>(planning_count_window_) : 0.0;
+    avg_control_time_ms_ = control_count_window_ > 0 ?
+      control_time_sum_ms_window_ / static_cast<double>(control_count_window_) : 0.0;
+    avg_visualization_time_ms_ = visualization_count_window_ > 0 ?
+      visualization_time_sum_ms_window_ / static_cast<double>(visualization_count_window_) : 0.0;
+
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(3)
+       << "cloud_input_hz=" << cloud_input_hz_
+       << " cloud_processed_hz=" << cloud_processed_hz_
+       << " planning_hz=" << planning_hz_
+       << " control_cmd_hz=" << control_cmd_hz_
+       << " visualization_hz=" << visualization_hz_
+       << " avg_cloud_process_time_ms=" << avg_cloud_process_time_ms_
+       << " avg_planning_time_ms=" << avg_planning_time_ms_
+       << " avg_control_time_ms=" << avg_control_time_ms_
+       << " avg_visualization_time_ms=" << avg_visualization_time_ms_
+       << " last_cloud_process_time_ms=" << last_cloud_process_time_ms_
+       << " dropped_cloud_count=" << dropped_cloud_count_
+       << " local_map_points=" << raw_obstacle_points_.size()
+       << " occupied_voxels=" << occupied_voxels_.size()
+       << " state=" << status_;
+
+    std_msgs::msg::String msg;
+    msg.data = ss.str();
+    performance_pub_->publish(msg);
+    local_logger_.logInfo("PERFORMANCE_SUMMARY", ss.str());
+
+    cloud_input_count_window_ = 0;
+    cloud_processed_count_window_ = 0;
+    planning_count_window_ = 0;
+    control_cmd_count_window_ = 0;
+    control_count_window_ = 0;
+    visualization_count_window_ = 0;
+    cloud_process_time_sum_ms_window_ = 0.0;
+    planning_time_sum_ms_window_ = 0.0;
+    control_time_sum_ms_window_ = 0.0;
+    visualization_time_sum_ms_window_ = 0.0;
   }
 
   void logLocalTargetIfChanged(
@@ -2173,6 +2536,7 @@ private:
   {
     logCommandIfChanged(cmd, reason);
     cmd_pub_->publish(cmd);
+    ++control_cmd_count_window_;
     last_cmd_ = cmd;
     last_cmd_time_ = now();
     last_cmd_valid_ = true;
@@ -2210,6 +2574,138 @@ private:
     return nearest_index;
   }
 
+  CornerRiskState detectCornerRisk(const Pose3D & pose) const
+  {
+    CornerRiskState risk;
+    if (!corner_safety_enabled_) {
+      return risk;
+    }
+
+    if (!global_path_.empty()) {
+      const std::size_t nearest_index = nearestPathIndex(pose.position, global_path_);
+      double accumulated = 0.0;
+      for (std::size_t i = nearest_index + 1; i + 1 < global_path_.size(); ++i) {
+        accumulated +=
+          (global_path_[i].head<2>() - global_path_[i - 1].head<2>()).norm();
+        if (accumulated > corner_detect_distance_) {
+          break;
+        }
+        const Eigen::Vector2d prev =
+          global_path_[i].head<2>() - global_path_[i - 1].head<2>();
+        const Eigen::Vector2d next =
+          global_path_[i + 1].head<2>() - global_path_[i].head<2>();
+        if (prev.norm() < 1.0e-4 || next.norm() < 1.0e-4) {
+          continue;
+        }
+        const double angle = std::abs(std::atan2(
+          prev.x() * next.y() - prev.y() * next.x(),
+          prev.dot(next)));
+        if (angle > 0.65) {
+          risk.active = true;
+          risk.severity = std::max(risk.severity, clamp(angle / 1.57, 0.0, 1.0));
+          risk.distance = std::min(risk.distance, accumulated);
+          risk.point = global_path_[i];
+          risk.reason = "path_turn";
+          risk.marker_points.push_back(global_path_[i]);
+          break;
+        }
+      }
+    }
+
+    const double cos_yaw = std::cos(pose.yaw);
+    const double sin_yaw = std::sin(pose.yaw);
+    std::vector<Eigen::Vector3d> front_points;
+    std::vector<Eigen::Vector3d> side_points;
+    double nearest_front = std::numeric_limits<double>::infinity();
+    double nearest_side = std::numeric_limits<double>::infinity();
+    for (const auto & point : raw_obstacle_points_) {
+      const Eigen::Vector2d rel_map = point.head<2>() - pose.position.head<2>();
+      const double x_base = cos_yaw * rel_map.x() + sin_yaw * rel_map.y();
+      const double y_base = -sin_yaw * rel_map.x() + cos_yaw * rel_map.y();
+      if (x_base < -0.1 || x_base > corner_detect_distance_) {
+        continue;
+      }
+      const double abs_y = std::abs(y_base);
+      const double distance = std::hypot(x_base, y_base);
+      if (x_base > 0.15 && abs_y < corner_preferred_clearance_) {
+        nearest_front = std::min(nearest_front, distance);
+        front_points.push_back(point);
+      }
+      if (x_base > -0.05 && x_base < corner_detect_distance_ &&
+        abs_y >= 0.15 && abs_y < corner_preferred_clearance_)
+      {
+        nearest_side = std::min(nearest_side, distance);
+        side_points.push_back(point);
+      }
+    }
+
+    if (!front_points.empty() && !side_points.empty() &&
+      nearest_front < corner_slowdown_distance_ &&
+      nearest_side < corner_slowdown_distance_)
+    {
+      risk.active = true;
+      risk.severity = std::max(
+        risk.severity,
+        clamp(1.0 - std::min(nearest_front, nearest_side) / corner_slowdown_distance_, 0.2, 1.0));
+      risk.distance = std::min(risk.distance, std::min(nearest_front, nearest_side));
+      risk.point = front_points.front();
+      risk.reason = risk.reason.empty() ? "cloud_corner" : risk.reason + "+cloud_corner";
+      const std::size_t front_stride = strideForSize(front_points.size(), 50);
+      for (std::size_t i = 0; i < front_points.size(); i += front_stride) {
+        risk.marker_points.push_back(front_points[i]);
+      }
+      const std::size_t side_stride = strideForSize(side_points.size(), 50);
+      for (std::size_t i = 0; i < side_points.size(); i += side_stride) {
+        risk.marker_points.push_back(side_points[i]);
+      }
+    }
+
+    if (risk.active && risk.reason.empty()) {
+      risk.reason = "corner_risk";
+    }
+    return risk;
+  }
+
+  Eigen::Vector3d biasTargetAwayFromObstacles(
+    const Eigen::Vector3d & target,
+    const Eigen::Vector3d & current_pos) const
+  {
+    if (!avoid_cutting_corners_ || raw_obstacle_points_.empty()) {
+      return target;
+    }
+
+    Eigen::Vector2d push = Eigen::Vector2d::Zero();
+    int contributors = 0;
+    for (const auto & point : raw_obstacle_points_) {
+      const Eigen::Vector2d away = target.head<2>() - point.head<2>();
+      const double distance = away.norm();
+      if (distance < 1.0e-4 || distance > corner_preferred_clearance_) {
+        continue;
+      }
+      push += away.normalized() * (corner_preferred_clearance_ - distance);
+      ++contributors;
+    }
+    if (contributors == 0 || push.norm() < 1.0e-4) {
+      return target;
+    }
+
+    push /= static_cast<double>(contributors);
+    const double max_shift = std::max(0.05, corner_preferred_clearance_ - corner_min_clearance_);
+    if (push.norm() > max_shift) {
+      push = push.normalized() * max_shift;
+    }
+
+    Eigen::Vector3d shifted = target;
+    shifted.x() += push.x();
+    shifted.y() += push.y();
+    shifted.z() = referenceZ(shifted.x(), shifted.y(), target.z());
+
+    if (isSegmentCollisionFree(current_pos, shifted) && isPoseCollisionFree(shifted)) {
+      return shifted;
+    }
+    return target;
+  }
+
   Eigen::Vector3d selectLocalTargetFromGlobalPath(
     const Eigen::Vector3d & current_pos,
     const std::vector<Eigen::Vector3d> & global_path) const
@@ -2233,8 +2729,12 @@ private:
       return clampTargetZ(final_goal, current_pos.z());
     }
 
+    const double base_lookahead =
+      last_corner_risk_.active ?
+      local_target_lookahead_ * corner_lookahead_shorten_factor_ :
+      local_target_lookahead_;
     const double lookahead =
-      std::max(min_local_target_lookahead_, local_target_lookahead_);
+      std::max(min_local_target_lookahead_, base_lookahead);
     double accumulated = 0.0;
     Eigen::Vector3d selected = global_path.back();
     for (std::size_t i = nearest_index; i + 1 < global_path.size(); ++i) {
@@ -2249,7 +2749,11 @@ private:
       }
     }
 
-    return clampTargetZ(selected, current_pos.z());
+    selected = clampTargetZ(selected, current_pos.z());
+    if (last_corner_risk_.active) {
+      selected = biasTargetAwayFromObstacles(selected, current_pos);
+    }
+    return selected;
   }
 
   bool computeCmdVelFromLocalTrajectory(
@@ -2547,6 +3051,9 @@ private:
     if (path.size() <= 2) {
       return path;
     }
+    if (avoid_cutting_corners_ && last_corner_risk_.active) {
+      return path;
+    }
 
     std::vector<Eigen::Vector3d> out;
     out.push_back(path.front());
@@ -2778,6 +3285,288 @@ private:
       best = std::min(best, (point.head<2>() - query.head<2>()).norm());
     }
     return best;
+  }
+
+  double trajectoryMinObstacleDistance(const Trajectory & traj) const
+  {
+    double best = std::numeric_limits<double>::infinity();
+    for (const auto & point : traj.points) {
+      best = std::min(best, minObstacleDistance(point));
+    }
+    return best;
+  }
+
+  ObstacleDistances measureObstacleDistances(const Pose3D & pose) const
+  {
+    ObstacleDistances distances;
+    const double cos_yaw = std::cos(pose.yaw);
+    const double sin_yaw = std::sin(pose.yaw);
+    const double corridor_half_width = std::max(robot_clear_radius_, corner_min_clearance_) + 0.20;
+    for (const auto & point : raw_obstacle_points_) {
+      const double dz = std::abs(point.z() - pose.position.z());
+      if (dz > local_map_height_) {
+        continue;
+      }
+      const Eigen::Vector2d rel_map = point.head<2>() - pose.position.head<2>();
+      const double x_base = cos_yaw * rel_map.x() + sin_yaw * rel_map.y();
+      const double y_base = -sin_yaw * rel_map.x() + cos_yaw * rel_map.y();
+      const double distance = std::hypot(x_base, y_base);
+      if (distance < distances.min) {
+        distances.min = distance;
+        distances.nearest_point = point;
+        distances.has_nearest = true;
+      }
+      if (x_base >= 0.0 && std::abs(y_base) <= corridor_half_width) {
+        distances.front = std::min(distances.front, distance);
+      }
+      if (x_base < 0.0 && std::abs(y_base) <= corridor_half_width) {
+        distances.rear = std::min(distances.rear, distance);
+      }
+      if (y_base >= 0.0 && std::abs(x_base) <= corner_slowdown_distance_) {
+        distances.left = std::min(distances.left, distance);
+      }
+      if (y_base < 0.0 && std::abs(x_base) <= corner_slowdown_distance_) {
+        distances.right = std::min(distances.right, distance);
+      }
+    }
+    return distances;
+  }
+
+  double obstacleDirectionScale(double distance) const
+  {
+    if (!std::isfinite(distance) || distance >= obstacle_slow_distance_) {
+      return 1.0;
+    }
+    if (distance <= obstacle_stop_distance_) {
+      return 0.0;
+    }
+    const double span = std::max(1.0e-3, obstacle_slow_distance_ - obstacle_stop_distance_);
+    return clamp((distance - obstacle_stop_distance_) / span, 0.15, 1.0);
+  }
+
+  void applyObstacleSpeedScaling(
+    const Pose3D & pose,
+    const ObstacleDistances & distances,
+    geometry_msgs::msg::Twist & cmd)
+  {
+    if (!obstacle_speed_scaling_enabled_ && !slow_down_near_obstacle_) {
+      return;
+    }
+
+    if (cmd.linear.x > 0.0) {
+      cmd.linear.x *= obstacleDirectionScale(distances.front);
+    } else if (cmd.linear.x < 0.0) {
+      cmd.linear.x *= obstacleDirectionScale(distances.rear);
+    }
+    if (cmd.linear.y > 0.0) {
+      cmd.linear.y *= obstacleDirectionScale(distances.left);
+    } else if (cmd.linear.y < 0.0) {
+      cmd.linear.y *= obstacleDirectionScale(distances.right);
+    }
+    if (std::abs(cmd.angular.z) > 1.0e-4 && std::isfinite(distances.front) &&
+      distances.front < obstacle_slow_distance_)
+    {
+      cmd.angular.z *= std::max(0.35, obstacleDirectionScale(distances.front));
+    }
+
+    if (last_corner_risk_.active &&
+      (!std::isfinite(last_corner_risk_.distance) ||
+      last_corner_risk_.distance <= corner_slowdown_distance_))
+    {
+      const double scale = clamp(
+        1.0 - last_corner_risk_.severity * (1.0 - corner_speed_scale_),
+        corner_speed_scale_, 1.0);
+      cmd.linear.x *= scale;
+      cmd.linear.y *= scale;
+      cmd.angular.z *= std::max(0.45, scale);
+      (void)pose;
+    }
+  }
+
+  bool boostMinExecutableComponent(
+    const Pose3D & pose,
+    geometry_msgs::msg::Twist & cmd,
+    double geometry_msgs::msg::Vector3::* linear_member,
+    double min_value) const
+  {
+    double & value = cmd.linear.*linear_member;
+    if (std::abs(value) < 1.0e-4 || std::abs(value) >= min_value || min_value <= 0.0) {
+      return false;
+    }
+    geometry_msgs::msg::Twist boosted = cmd;
+    boosted.linear.*linear_member = std::copysign(min_value, value);
+    if (isCommandCollisionFree(pose, boosted, cmd_collision_check_time_)) {
+      value = boosted.linear.*linear_member;
+      return true;
+    }
+    return false;
+  }
+
+  void applyMinExecutableSpeed(const Pose3D & pose, geometry_msgs::msg::Twist & cmd)
+  {
+    bool boosted = false;
+    boosted = boostMinExecutableComponent(
+      pose, cmd, &geometry_msgs::msg::Vector3::x, min_executable_vx_) || boosted;
+    boosted = boostMinExecutableComponent(
+      pose, cmd, &geometry_msgs::msg::Vector3::y, min_executable_vy_) || boosted;
+    if (std::abs(cmd.angular.z) > 1.0e-4 && std::abs(cmd.angular.z) < min_executable_wz_) {
+      geometry_msgs::msg::Twist candidate = cmd;
+      candidate.angular.z = std::copysign(min_executable_wz_, cmd.angular.z);
+      if (isCommandCollisionFree(pose, candidate, cmd_collision_check_time_)) {
+        cmd.angular.z = candidate.angular.z;
+        boosted = true;
+      }
+    }
+    if (boosted) {
+      local_logger_.logWarningThrottled(
+        "min_executable_speed",
+        "MIN_EXECUTABLE_SPEED",
+        "boosted safe command to executable threshold cmd=" + formatTwist2D(cmd),
+        logging_config_.repeated_warning_throttle_sec);
+    }
+  }
+
+  bool tryTangentEscape(
+    const Pose3D & pose,
+    const ObstacleDistances & distances,
+    const geometry_msgs::msg::Twist & current_cmd,
+    geometry_msgs::msg::Twist & escape_cmd)
+  {
+    if (!allow_tangent_escape_near_obstacle_ || !std::isfinite(distances.min) ||
+      distances.min > obstacle_slow_distance_)
+    {
+      return false;
+    }
+    const double planar_speed = std::hypot(current_cmd.linear.x, current_cmd.linear.y);
+    if (planar_speed >= std::min(min_executable_vx_, min_executable_vy_) &&
+      std::abs(current_cmd.angular.z) >= min_executable_wz_)
+    {
+      return false;
+    }
+
+    const double cos_yaw = std::cos(pose.yaw);
+    const double sin_yaw = std::sin(pose.yaw);
+    double nearest_y_base = 0.0;
+    if (distances.has_nearest) {
+      const Eigen::Vector2d rel_map =
+        distances.nearest_point.head<2>() - pose.position.head<2>();
+      nearest_y_base = -sin_yaw * rel_map.x() + cos_yaw * rel_map.y();
+    }
+    const double away_y = nearest_y_base >= 0.0 ? -tangent_escape_speed_ : tangent_escape_speed_;
+
+    std::vector<geometry_msgs::msg::Twist> candidates;
+    geometry_msgs::msg::Twist forward;
+    forward.linear.x = tangent_escape_speed_;
+    candidates.push_back(forward);
+    geometry_msgs::msg::Twist lateral;
+    lateral.linear.y = away_y;
+    candidates.push_back(lateral);
+    geometry_msgs::msg::Twist reverse;
+    reverse.linear.x = -tangent_escape_speed_;
+    candidates.push_back(reverse);
+
+    for (auto candidate : candidates) {
+      candidate = clampCommandMagnitude(candidate);
+      if (isCommandCollisionFree(pose, candidate, cmd_collision_check_time_)) {
+        escape_cmd = candidate;
+        local_logger_.logWarningThrottled(
+          "tangent_escape",
+          "TANGENT_ESCAPE",
+          "near_obstacle_distance=" + std::to_string(distances.min) +
+          " cmd=" + formatTwist2D(escape_cmd),
+          logging_config_.repeated_warning_throttle_sec);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool computeRecoveryCommand(const Pose3D & pose, geometry_msgs::msg::Twist & recovery_cmd)
+  {
+    if (!recovery_enabled_) {
+      return false;
+    }
+
+    local_logger_.logWarningThrottled(
+      "recovery_triggered",
+      "RECOVERY_TRIGGERED",
+      "state=" + status_ + " last_plan_failure=\"" + last_plan_failure_reason_ + "\"",
+      logging_config_.repeated_warning_throttle_sec);
+
+    std::vector<geometry_msgs::msg::Twist> candidates;
+    geometry_msgs::msg::Twist reverse;
+    reverse.linear.x = recovery_reverse_speed_;
+    candidates.push_back(reverse);
+    geometry_msgs::msg::Twist lateral_left;
+    lateral_left.linear.y = recovery_lateral_speed_;
+    candidates.push_back(lateral_left);
+    geometry_msgs::msg::Twist lateral_right;
+    lateral_right.linear.y = -recovery_lateral_speed_;
+    candidates.push_back(lateral_right);
+    geometry_msgs::msg::Twist yaw_left;
+    yaw_left.angular.z = recovery_yaw_rate_;
+    candidates.push_back(yaw_left);
+    geometry_msgs::msg::Twist yaw_right;
+    yaw_right.angular.z = -recovery_yaw_rate_;
+    candidates.push_back(yaw_right);
+
+    for (auto candidate : candidates) {
+      candidate = clampCommandMagnitude(candidate);
+      if (isCommandCollisionFree(pose, candidate, cmd_collision_check_time_)) {
+        recovery_cmd = candidate;
+        local_logger_.logInfo("RECOVERY_SUCCESS", "cmd=" + formatTwist2D(recovery_cmd));
+        return true;
+      }
+    }
+
+    local_logger_.logError(
+      "RECOVERY_FAILED",
+      "no collision-free recovery command found");
+    return false;
+  }
+
+  bool updateStuckDetection(const Pose3D & pose, const geometry_msgs::msg::Twist & cmd)
+  {
+    if (!stuck_detection_enabled_) {
+      return false;
+    }
+
+    const double command_magnitude = std::max(
+      std::hypot(cmd.linear.x, cmd.linear.y),
+      std::abs(cmd.angular.z) * 0.25);
+    const bool meaningful_command =
+      command_magnitude >= std::max(0.03, std::min(min_executable_vx_, min_executable_vy_) * 0.5);
+    if (!meaningful_command) {
+      has_stuck_monitor_pose_ = false;
+      return consecutive_plan_failures_ >= 3;
+    }
+
+    const rclcpp::Time time_now = now();
+    if (!has_stuck_monitor_pose_) {
+      stuck_monitor_start_pose_ = pose.position;
+      stuck_monitor_start_time_ = time_now;
+      has_stuck_monitor_pose_ = true;
+      return false;
+    }
+
+    const double elapsed = (time_now - stuck_monitor_start_time_).seconds();
+    const double progress = (pose.position.head<2>() - stuck_monitor_start_pose_.head<2>()).norm();
+    if (elapsed >= stuck_time_threshold_ && progress < min_progress_distance_) {
+      local_logger_.logWarningThrottled(
+        "low_speed_stuck",
+        "LOW_SPEED_STUCK",
+        "elapsed=" + std::to_string(elapsed) +
+        " progress=" + std::to_string(progress) +
+        " cmd=" + formatTwist2D(cmd),
+        logging_config_.repeated_warning_throttle_sec);
+      has_stuck_monitor_pose_ = false;
+      return true;
+    }
+    if (progress >= min_progress_distance_) {
+      stuck_monitor_start_pose_ = pose.position;
+      stuck_monitor_start_time_ = time_now;
+    }
+    return false;
   }
 
   std::optional<GridKey> findNearestFreeGrid(const GridKey & preferred) const
@@ -3057,7 +3846,6 @@ private:
         "CLOUD_TIMEOUT",
         warn.str(),
         logging_config_.repeated_warning_throttle_sec);
-      publishLocalMap();
     }
   }
 
@@ -3085,13 +3873,31 @@ private:
     return limited;
   }
 
+  geometry_msgs::msg::Twist clampCommandMagnitude(const geometry_msgs::msg::Twist & desired) const
+  {
+    geometry_msgs::msg::Twist limited = desired;
+    limited.linear.x = clamp(limited.linear.x, -max_cmd_vel_x_, max_cmd_vel_x_);
+    limited.linear.y = clamp(limited.linear.y, -max_cmd_vel_y_, max_cmd_vel_y_);
+    limited.angular.z = clamp(limited.angular.z, -max_cmd_wz_, max_cmd_wz_);
+    limited.angular.z = clamp(limited.angular.z, -max_yaw_rate_, max_yaw_rate_);
+    return limited;
+  }
+
   void publishZeroCommand(const std::string & reason = "zero_command")
   {
     geometry_msgs::msg::Twist cmd;
     publishCommand(cmd, reason);
   }
 
-  void publishTrajectory(const Trajectory & traj)
+  std::size_t strideForSize(std::size_t size, std::size_t max_points) const
+  {
+    if (size == 0 || max_points == 0) {
+      return 1;
+    }
+    return std::max<std::size_t>(1, (size + max_points - 1) / max_points);
+  }
+
+  void publishTrajectory(const Trajectory & traj, bool include_visualization = false)
   {
     nav_msgs::msg::Path path_msg;
     path_msg.header.stamp = now();
@@ -3109,26 +3915,39 @@ private:
     }
     trajectory_pub_->publish(path_msg);
 
+    if (!include_visualization) {
+      return;
+    }
+
     visualization_msgs::msg::Marker marker;
     marker.header = path_msg.header;
     marker.ns = "ego_local_trajectory";
     marker.id = 0;
     marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
-    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.action = traj.points.empty() ? visualization_msgs::msg::Marker::DELETE :
+      visualization_msgs::msg::Marker::ADD;
     marker.scale.x = 0.06;
     marker.color.r = 0.1F;
     marker.color.g = 0.8F;
     marker.color.b = 1.0F;
     marker.color.a = 1.0F;
     marker.lifetime = durationFromSeconds(1.2);
+    const std::size_t stride = strideForSize(traj.points.size(), max_marker_points_);
+    std::size_t count = 0;
     for (const auto & point : traj.points) {
-      marker.points.push_back(toPointMsg(point));
+      if ((count++ % stride) == 0) {
+        marker.points.push_back(toPointMsg(point));
+      }
     }
     trajectory_marker_pub_->publish(marker);
   }
 
-  void publishTargetMarker(const Eigen::Vector3d & target)
+  void publishTargetMarker(const Eigen::Vector3d & target, bool include_visualization = false)
   {
+    if (!include_visualization) {
+      return;
+    }
+
     visualization_msgs::msg::Marker marker;
     marker.header.stamp = now();
     marker.header.frame_id = map_frame_;
@@ -3156,12 +3975,20 @@ private:
     msg.header.frame_id = map_frame_;
     sensor_msgs::PointCloud2Modifier modifier(msg);
     modifier.setPointCloud2FieldsByString(1, "xyz");
-    modifier.resize(occupied_voxels_.size());
+    const std::size_t stride = strideForSize(
+      occupied_voxels_.size(), static_cast<std::size_t>(max_local_cloud_points_));
+    const std::size_t output_size = stride == 0 ? 0 :
+      (occupied_voxels_.size() + stride - 1) / stride;
+    modifier.resize(output_size);
 
     sensor_msgs::PointCloud2Iterator<float> iter_x(msg, "x");
     sensor_msgs::PointCloud2Iterator<float> iter_y(msg, "y");
     sensor_msgs::PointCloud2Iterator<float> iter_z(msg, "z");
+    std::size_t count = 0;
     for (const auto & key : occupied_voxels_) {
+      if ((count++ % stride) != 0) {
+        continue;
+      }
       const Eigen::Vector3d point = voxelKeyToWorld(key);
       *iter_x = static_cast<float>(point.x());
       *iter_y = static_cast<float>(point.y());
@@ -3192,8 +4019,7 @@ private:
     marker.lifetime = durationFromSeconds(0.6);
 
     std::size_t count = 0;
-    const std::size_t max_points = 5000;
-    const std::size_t stride = std::max<std::size_t>(1, occupied_voxels_.size() / max_points);
+    const std::size_t stride = strideForSize(occupied_voxels_.size(), max_marker_points_);
     for (const auto & key : occupied_voxels_) {
       if ((count++ % stride) != 0) {
         continue;
@@ -3239,8 +4065,12 @@ private:
     marker.color.b = b;
     marker.color.a = a;
     marker.lifetime = durationFromSeconds(0.6);
+    const std::size_t stride = strideForSize(points.size(), max_marker_points_);
+    std::size_t count = 0;
     for (const auto & point : points) {
-      marker.points.push_back(toPointMsg(point));
+      if ((count++ % stride) == 0) {
+        marker.points.push_back(toPointMsg(point));
+      }
     }
     array.markers.push_back(marker);
   }
@@ -3263,8 +4093,12 @@ private:
     marker.color.b = 0.0F;
     marker.color.a = 1.0F;
     marker.lifetime = durationFromSeconds(0.8);
+    const std::size_t stride = strideForSize(last_collision_points_.size(), max_marker_points_);
+    std::size_t count = 0;
     for (const auto & point : last_collision_points_) {
-      marker.points.push_back(toPointMsg(point));
+      if ((count++ % stride) == 0) {
+        marker.points.push_back(toPointMsg(point));
+      }
     }
     collision_points_pub_->publish(marker);
   }
@@ -3333,6 +4167,93 @@ private:
     cmd_vel_marker_pub_->publish(marker);
   }
 
+  void publishPerformanceMarker(const Pose3D * pose)
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header.stamp = now();
+    marker.header.frame_id = map_frame_;
+    marker.ns = "local_planner_performance";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    if (pose != nullptr) {
+      marker.pose.position = toPointMsg(pose->position + Eigen::Vector3d(0.0, 0.0, 1.2));
+    } else {
+      marker.pose.position.x = 0.0;
+      marker.pose.position.y = 0.0;
+      marker.pose.position.z = 1.2;
+    }
+    marker.scale.z = 0.22;
+    marker.color.r = 0.1F;
+    marker.color.g = 0.95F;
+    marker.color.b = 0.35F;
+    marker.color.a = 0.95F;
+    marker.lifetime = durationFromSeconds(1.2);
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(1)
+       << "cloud " << cloud_input_hz_ << "/" << cloud_processed_hz_ << "Hz"
+       << " plan " << planning_hz_ << "Hz"
+       << " cmd " << control_cmd_hz_ << "Hz"
+       << " vis " << visualization_hz_ << "Hz";
+    marker.text = ss.str();
+    performance_marker_pub_->publish(marker);
+  }
+
+  void publishCornerRiskMarker()
+  {
+    visualization_msgs::msg::MarkerArray array;
+    const auto stamp = now();
+
+    visualization_msgs::msg::Marker risk;
+    risk.header.stamp = stamp;
+    risk.header.frame_id = map_frame_;
+    risk.ns = "local_planner_corner_risk";
+    risk.id = 0;
+    risk.type = visualization_msgs::msg::Marker::SPHERE;
+    risk.action = last_corner_risk_.active ? visualization_msgs::msg::Marker::ADD :
+      visualization_msgs::msg::Marker::DELETE;
+    risk.pose.position = toPointMsg(last_corner_risk_.point);
+    risk.pose.orientation.w = 1.0;
+    const double radius = corner_safety_enabled_ ?
+      std::max(0.25, corner_preferred_clearance_) : 0.25;
+    risk.scale.x = radius;
+    risk.scale.y = radius;
+    risk.scale.z = 0.18;
+    risk.color.r = 1.0F;
+    risk.color.g = 0.2F;
+    risk.color.b = 0.05F;
+    risk.color.a = 0.35F + static_cast<float>(0.45 * last_corner_risk_.severity);
+    risk.lifetime = durationFromSeconds(1.2);
+    array.markers.push_back(risk);
+
+    visualization_msgs::msg::Marker points;
+    points.header.stamp = stamp;
+    points.header.frame_id = map_frame_;
+    points.ns = "local_planner_corner_risk";
+    points.id = 1;
+    points.type = visualization_msgs::msg::Marker::POINTS;
+    points.action = last_corner_risk_.active ? visualization_msgs::msg::Marker::ADD :
+      visualization_msgs::msg::Marker::DELETE;
+    points.pose.orientation.w = 1.0;
+    points.scale.x = 0.12;
+    points.scale.y = 0.12;
+    points.color.r = 1.0F;
+    points.color.g = 0.7F;
+    points.color.b = 0.05F;
+    points.color.a = 0.9F;
+    points.lifetime = durationFromSeconds(1.2);
+    const std::size_t stride = strideForSize(last_corner_risk_.marker_points.size(), max_marker_points_);
+    std::size_t count = 0;
+    for (const auto & point : last_corner_risk_.marker_points) {
+      if ((count++ % stride) == 0) {
+        points.points.push_back(toPointMsg(point));
+      }
+    }
+    array.markers.push_back(points);
+    corner_risk_marker_pub_->publish(array);
+  }
+
   void setStatus(const std::string & status, const std::string & reason = "")
   {
     if (status == status_) {
@@ -3365,6 +4286,9 @@ private:
   std::string collision_points_marker_topic_;
   std::string footprint_marker_topic_;
   std::string cmd_vel_marker_topic_;
+  std::string performance_topic_;
+  std::string performance_marker_topic_;
+  std::string corner_risk_marker_topic_;
   std::string status_topic_;
   std::string debug_topic_;
   std::string robot_model_;
@@ -3440,6 +4364,39 @@ private:
   bool debug_visualization_enabled_{true};
   double footprint_height_{0.55};
   double static_map_update_distance_{0.25};
+  std::string pointcloud_qos_{"sensor_data"};
+  bool keep_latest_cloud_only_{true};
+  bool drop_old_cloud_if_busy_{true};
+  double cloud_processing_frequency_{10.0};
+  double max_cloud_processing_time_ms_{50.0};
+  double voxel_leaf_size_{0.10};
+  int max_local_cloud_points_{30000};
+  bool visualization_enabled_{true};
+  double visualization_publish_frequency_{2.0};
+  bool heavy_debug_visualization_enabled_{false};
+  int max_marker_points_{5000};
+  int max_candidate_trajectories_visualized_{20};
+  bool corner_safety_enabled_{true};
+  double corner_detect_distance_{1.2};
+  double corner_slowdown_distance_{1.0};
+  double corner_min_clearance_{0.45};
+  double corner_preferred_clearance_{0.75};
+  double corner_speed_scale_{0.45};
+  double corner_lookahead_shorten_factor_{0.5};
+  bool avoid_cutting_corners_{true};
+  bool obstacle_speed_scaling_enabled_{true};
+  double min_executable_vx_{0.08};
+  double min_executable_vy_{0.08};
+  double min_executable_wz_{0.15};
+  bool allow_tangent_escape_near_obstacle_{true};
+  double tangent_escape_speed_{0.12};
+  bool stuck_detection_enabled_{true};
+  double stuck_time_threshold_{2.0};
+  double min_progress_distance_{0.05};
+  bool recovery_enabled_{true};
+  double recovery_reverse_speed_{-0.12};
+  double recovery_lateral_speed_{0.12};
+  double recovery_yaw_rate_{0.35};
   LocalPlannerLoggingConfig logging_config_;
   LocalPlannerLogger local_logger_;
 
@@ -3462,11 +4419,17 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr collision_points_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr footprint_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr cmd_vel_marker_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr performance_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr performance_marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr corner_risk_marker_pub_;
 
+  rclcpp::TimerBase::SharedPtr cloud_processing_timer_;
   rclcpp::TimerBase::SharedPtr replan_timer_;
   rclcpp::TimerBase::SharedPtr control_timer_;
   rclcpp::TimerBase::SharedPtr collision_timer_;
   rclcpp::TimerBase::SharedPtr debug_timer_;
+  rclcpp::TimerBase::SharedPtr visualization_timer_;
+  rclcpp::TimerBase::SharedPtr performance_timer_;
 
   std::vector<Eigen::Vector3d> global_path_;
   std::string global_path_frame_{"map"};
@@ -3475,6 +4438,11 @@ private:
   bool has_odom_{false};
   nav_msgs::msg::Odometry last_odom_;
   rclcpp::Time last_cloud_time_{0, 0, RCL_ROS_TIME};
+  sensor_msgs::msg::PointCloud2::SharedPtr latest_dynamic_cloud_;
+  rclcpp::Time latest_dynamic_cloud_received_time_{0, 0, RCL_ROS_TIME};
+  bool has_pending_dynamic_cloud_{false};
+  bool cloud_processing_busy_{false};
+  std::size_t dropped_cloud_count_{0};
 
   std::vector<Eigen::Vector3d> static_map_points_;
   bool has_static_map_{false};
@@ -3503,12 +4471,40 @@ private:
   double last_pose_tf_age_sec_{-1.0};
   std::size_t replan_count_{0};
   std::size_t collision_count_{0};
+  std::size_t consecutive_plan_failures_{0};
   bool goal_reached_logged_{false};
   bool has_logged_cloud_status_{false};
   std::size_t last_logged_cloud_points_{0};
   std::chrono::steady_clock::time_point last_cloud_status_log_time_{};
   bool has_summary_log_time_{false};
   std::chrono::steady_clock::time_point last_summary_log_time_{};
+  CornerRiskState last_corner_risk_;
+  bool has_stuck_monitor_pose_{false};
+  Eigen::Vector3d stuck_monitor_start_pose_{Eigen::Vector3d::Zero()};
+  rclcpp::Time stuck_monitor_start_time_{0, 0, RCL_ROS_TIME};
+
+  bool has_performance_window_time_{false};
+  rclcpp::Time last_performance_window_time_{0, 0, RCL_ROS_TIME};
+  std::size_t cloud_input_count_window_{0};
+  std::size_t cloud_processed_count_window_{0};
+  std::size_t planning_count_window_{0};
+  std::size_t control_cmd_count_window_{0};
+  std::size_t control_count_window_{0};
+  std::size_t visualization_count_window_{0};
+  double cloud_process_time_sum_ms_window_{0.0};
+  double planning_time_sum_ms_window_{0.0};
+  double control_time_sum_ms_window_{0.0};
+  double visualization_time_sum_ms_window_{0.0};
+  double last_cloud_process_time_ms_{0.0};
+  double cloud_input_hz_{0.0};
+  double cloud_processed_hz_{0.0};
+  double planning_hz_{0.0};
+  double control_cmd_hz_{0.0};
+  double visualization_hz_{0.0};
+  double avg_cloud_process_time_ms_{0.0};
+  double avg_planning_time_ms_{0.0};
+  double avg_control_time_ms_{0.0};
+  double avg_visualization_time_ms_{0.0};
 
   geometry_msgs::msg::Twist last_cmd_;
   geometry_msgs::msg::Twist last_logged_cmd_;
