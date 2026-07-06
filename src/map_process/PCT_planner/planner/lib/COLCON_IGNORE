@@ -1,0 +1,1 @@
+Standalone PCT planner core. Build with ../build_thirdparty.sh and ../build.sh, not colcon.
