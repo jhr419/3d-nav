@@ -1,0 +1,79 @@
+[2026-07-06 10:40:53.150] [INFO] [STARTUP] local planner logger initialized file=/home/jhr/3dnav_ws/debug/logs/local_planner/local_planner_2026-07-06_10-40-53.log
+[2026-07-06 10:40:53.153] [INFO] [STATE] from=NONE to=WAITING_FOR_PATH reason=startup
+[2026-07-06 10:40:53.153] [INFO] [STARTUP] local planner started node_name=ego_local_planner_node config_file=/home/jhr/3dnav_ws/install/ego_local_planner/share/ego_local_planner/config/ego_local_planner.yaml map_frame=map odom_frame=odom base_frame=base_link pointcloud_topic=/livox/lidar,/cloud_registered,/cloud_registered_body,/mid360 global_path_topic=/planned_path cmd_vel_topic=/cmd_vel_nav robot_model=ground_omni max_vel_x=0.200 max_vel_y=0.100 max_yaw_rate=1.000 local_map_radius=5.000 inflation_radius=0.350
+[2026-07-06 10:40:53.203] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.000 linear.y=0.000 angular.z=0.000 reason=no_global_path
+[2026-07-06 10:40:53.203] [WARN] [GLOBAL_PATH_LOST] no valid global path in replan
+[2026-07-06 10:40:53.574] [INFO] [CLOUD] static cloud received raw_point_count=554013 filtered_point_count=554013 cloud_frame=map cloud_age=0.235 local_map_points=20814
+[2026-07-06 10:40:53.665] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=20814 trajectory_valid=false min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 10:40:54.668] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=20814 trajectory_valid=false min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 10:40:55.252] [WARN] [GLOBAL_PATH_LOST] no valid global path in replan
+[2026-07-06 10:40:56.166] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=20814 trajectory_valid=false min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 10:40:57.182] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=20814 trajectory_valid=false min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 10:40:57.302] [WARN] [GLOBAL_PATH_LOST] no valid global path in replan
+[2026-07-06 10:40:58.663] [INFO] [SUMMARY] state=WAITING_FOR_PATH current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(0.000,0.000,0.000) path_size=0 local_map_points=20814 trajectory_valid=false min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.000,0.000,0.000) replan_count=0 collision_count=0
+[2026-07-06 10:40:59.351] [WARN] [GLOBAL_PATH_LOST] no valid global path in replan
+[2026-07-06 10:40:59.376] [INFO] [PATH] new global path received frame_id=map stored_frame=map path_size=33 first_point=(4.000,5.500,0.000) last_point=(5.000,11.005,0.000) path_length=6.151 min_z=0.000 max_z=0.065
+[2026-07-06 10:40:59.376] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path path_size=33
+[2026-07-06 10:40:59.376] [INFO] [STATE] from=WAITING_FOR_PATH to=REPLAN reason=new_global_path
+[2026-07-06 10:40:59.402] [INFO] [STATE] from=REPLAN to=PLANNING reason=new_global_path
+[2026-07-06 10:40:59.402] [INFO] [LOCAL_TARGET] local target updated target=(5.100,6.463,0.063) nearest_path_index=0 lookahead_distance=1.462 distance_to_final_goal=5.595
+[2026-07-06 10:40:59.402] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path current_pose=(4.000,5.500,0.000) current_yaw=0.000 local_target=(5.100,6.463,0.063) previous_trajectory_valid=false collision_detected=false dynamic_obstacle_detected=false
+[2026-07-06 10:40:59.409] [INFO] [PLAN_SUCCESS] planning_time_ms=1.857 trajectory_points=9 trajectory_duration=7.318 trajectory_length=1.464 min_obstacle_distance=0.850 tracking_error=0.000
+[2026-07-06 10:40:59.409] [INFO] [STATE] from=PLANNING to=TRACKING reason=plan_success
+[2026-07-06 10:40:59.416] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.013 linear.y=0.013 angular.z=0.097 reason=tracking
+[2026-07-06 10:40:59.448] [INFO] [PATH] new global path received frame_id=map stored_frame=map path_size=33 first_point=(4.000,5.500,0.000) last_point=(5.000,11.005,0.000) path_length=6.151 min_z=0.000 max_z=0.065
+[2026-07-06 10:40:59.448] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path path_size=33
+[2026-07-06 10:40:59.448] [INFO] [STATE] from=TRACKING to=REPLAN reason=new_global_path
+[2026-07-06 10:40:59.452] [INFO] [STATE] from=REPLAN to=PLANNING reason=new_global_path
+[2026-07-06 10:40:59.452] [INFO] [LOCAL_TARGET] local target updated target=(5.100,6.463,0.063) nearest_path_index=0 lookahead_distance=1.462 distance_to_final_goal=5.595
+[2026-07-06 10:40:59.452] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path current_pose=(4.000,5.500,0.000) current_yaw=0.000 local_target=(5.100,6.463,0.063) previous_trajectory_valid=true collision_detected=false dynamic_obstacle_detected=false
+[2026-07-06 10:40:59.460] [INFO] [PLAN_SUCCESS] planning_time_ms=1.833 trajectory_points=9 trajectory_duration=7.318 trajectory_length=1.464 min_obstacle_distance=0.850 tracking_error=0.000
+[2026-07-06 10:40:59.460] [INFO] [STATE] from=PLANNING to=TRACKING reason=plan_success
+[2026-07-06 10:40:59.467] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.023 linear.y=0.023 angular.z=0.173 reason=tracking
+[2026-07-06 10:40:59.509] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.033 linear.y=0.033 angular.z=0.248 reason=tracking
+[2026-07-06 10:40:59.519] [INFO] [PATH] new global path received frame_id=map stored_frame=map path_size=33 first_point=(4.000,5.500,0.000) last_point=(5.000,11.005,0.000) path_length=6.151 min_z=0.000 max_z=0.065
+[2026-07-06 10:40:59.519] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path path_size=33
+[2026-07-06 10:40:59.519] [INFO] [STATE] from=TRACKING to=REPLAN reason=new_global_path
+[2026-07-06 10:40:59.552] [INFO] [STATE] from=REPLAN to=PLANNING reason=new_global_path
+[2026-07-06 10:40:59.553] [INFO] [LOCAL_TARGET] local target updated target=(5.100,6.463,0.063) nearest_path_index=0 lookahead_distance=1.462 distance_to_final_goal=5.595
+[2026-07-06 10:40:59.553] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path current_pose=(4.000,5.500,0.000) current_yaw=0.000 local_target=(5.100,6.463,0.063) previous_trajectory_valid=true collision_detected=false dynamic_obstacle_detected=false
+[2026-07-06 10:40:59.560] [INFO] [PLAN_SUCCESS] planning_time_ms=1.828 trajectory_points=9 trajectory_duration=7.318 trajectory_length=1.464 min_obstacle_distance=0.850 tracking_error=0.000
+[2026-07-06 10:40:59.560] [INFO] [STATE] from=PLANNING to=TRACKING reason=plan_success
+[2026-07-06 10:40:59.567] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.045 linear.y=0.045 angular.z=0.334 reason=tracking
+[2026-07-06 10:40:59.589] [INFO] [PATH] new global path received frame_id=map stored_frame=map path_size=32 first_point=(4.000,5.500,0.000) last_point=(5.000,10.826,0.000) path_length=5.963 min_z=0.000 max_z=0.065
+[2026-07-06 10:40:59.589] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path path_size=32
+[2026-07-06 10:40:59.589] [INFO] [STATE] from=TRACKING to=REPLAN reason=new_global_path
+[2026-07-06 10:40:59.602] [INFO] [STATE] from=REPLAN to=PLANNING reason=new_global_path
+[2026-07-06 10:40:59.602] [INFO] [LOCAL_TARGET] local target updated target=(5.100,6.463,0.063) nearest_path_index=0 lookahead_distance=1.462 distance_to_final_goal=5.419
+[2026-07-06 10:40:59.602] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path current_pose=(4.000,5.500,0.000) current_yaw=0.000 local_target=(5.100,6.463,0.063) previous_trajectory_valid=true collision_detected=false dynamic_obstacle_detected=false
+[2026-07-06 10:40:59.610] [INFO] [PLAN_SUCCESS] planning_time_ms=1.860 trajectory_points=9 trajectory_duration=7.318 trajectory_length=1.464 min_obstacle_distance=0.850 tracking_error=0.000
+[2026-07-06 10:40:59.610] [INFO] [STATE] from=PLANNING to=TRACKING reason=plan_success
+[2026-07-06 10:40:59.617] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.055 linear.y=0.055 angular.z=0.409 reason=tracking
+[2026-07-06 10:40:59.659] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.065 linear.y=0.065 angular.z=0.484 reason=tracking
+[2026-07-06 10:40:59.671] [INFO] [SUMMARY] state=TRACKING current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(5.100,6.463,0.063) path_size=32 local_map_points=20814 trajectory_valid=true min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.065,0.065,0.484) replan_count=4 collision_count=0
+[2026-07-06 10:40:59.672] [INFO] [PATH] new global path received frame_id=map stored_frame=map path_size=32 first_point=(4.000,5.500,0.000) last_point=(5.000,10.826,0.000) path_length=5.963 min_z=0.000 max_z=0.065
+[2026-07-06 10:40:59.672] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path path_size=32
+[2026-07-06 10:40:59.672] [INFO] [STATE] from=TRACKING to=REPLAN reason=new_global_path
+[2026-07-06 10:40:59.702] [INFO] [STATE] from=REPLAN to=PLANNING reason=new_global_path
+[2026-07-06 10:40:59.703] [INFO] [LOCAL_TARGET] local target updated target=(5.100,6.463,0.063) nearest_path_index=0 lookahead_distance=1.462 distance_to_final_goal=5.419
+[2026-07-06 10:40:59.703] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path current_pose=(4.000,5.500,0.000) current_yaw=0.000 local_target=(5.100,6.463,0.063) previous_trajectory_valid=true collision_detected=false dynamic_obstacle_detected=false
+[2026-07-06 10:40:59.711] [INFO] [PLAN_SUCCESS] planning_time_ms=1.860 trajectory_points=9 trajectory_duration=7.318 trajectory_length=1.464 min_obstacle_distance=0.850 tracking_error=0.000
+[2026-07-06 10:40:59.711] [INFO] [STATE] from=PLANNING to=TRACKING reason=plan_success
+[2026-07-06 10:40:59.718] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.076 linear.y=0.076 angular.z=0.573 reason=tracking
+[2026-07-06 10:40:59.728] [INFO] [PATH] new global path received frame_id=map stored_frame=map path_size=32 first_point=(4.000,5.500,0.000) last_point=(5.000,10.826,0.000) path_length=5.963 min_z=0.000 max_z=0.065
+[2026-07-06 10:40:59.728] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path path_size=32
+[2026-07-06 10:40:59.728] [INFO] [STATE] from=TRACKING to=REPLAN reason=new_global_path
+[2026-07-06 10:40:59.753] [INFO] [STATE] from=REPLAN to=PLANNING reason=new_global_path
+[2026-07-06 10:40:59.753] [INFO] [LOCAL_TARGET] local target updated target=(5.100,6.463,0.063) nearest_path_index=0 lookahead_distance=1.462 distance_to_final_goal=5.419
+[2026-07-06 10:40:59.753] [INFO] [REPLAN] REPLAN_TRIGGERED reason=new_global_path current_pose=(4.000,5.500,0.000) current_yaw=0.000 local_target=(5.100,6.463,0.063) previous_trajectory_valid=true collision_detected=false dynamic_obstacle_detected=false
+[2026-07-06 10:40:59.765] [INFO] [PLAN_SUCCESS] planning_time_ms=3.269 trajectory_points=9 trajectory_duration=7.318 trajectory_length=1.464 min_obstacle_distance=0.850 tracking_error=0.000
+[2026-07-06 10:40:59.765] [INFO] [STATE] from=PLANNING to=TRACKING reason=plan_success
+[2026-07-06 10:40:59.772] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.087 linear.y=0.087 angular.z=0.653 reason=tracking
+[2026-07-06 10:40:59.820] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.097 linear.y=0.097 angular.z=0.728 reason=tracking
+[2026-07-06 10:40:59.871] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.107 linear.y=0.107 angular.z=0.803 reason=tracking
+[2026-07-06 10:40:59.922] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.117 linear.y=0.117 angular.z=0.863 reason=tracking
+[2026-07-06 10:41:00.172] [INFO] [CMD_VEL] cmd_vel changed linear.x=0.170 linear.y=0.170 angular.z=0.863 reason=tracking
+[2026-07-06 10:41:00.672] [INFO] [SUMMARY] state=TRACKING current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(5.100,6.463,0.063) path_size=32 local_map_points=20814 trajectory_valid=true min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.220,0.193,0.863) replan_count=6 collision_count=0
+[2026-07-06 10:41:01.685] [INFO] [SUMMARY] state=TRACKING current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(5.100,6.463,0.063) path_size=32 local_map_points=20814 trajectory_valid=true min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.220,0.193,0.863) replan_count=6 collision_count=0
+[2026-07-06 10:41:03.183] [INFO] [SUMMARY] state=TRACKING current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(5.100,6.463,0.063) path_size=32 local_map_points=20814 trajectory_valid=true min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.220,0.193,0.863) replan_count=6 collision_count=0
+[2026-07-06 10:41:04.683] [INFO] [SUMMARY] state=TRACKING current_pose=(4.000,5.500,0.000,0.000) pose_source=tf:base_link tf_age=-1.000 local_target=(5.100,6.463,0.063) path_size=32 local_map_points=20814 trajectory_valid=true min_obstacle_distance=0.850 tracking_error=0.000 cmd_vel_nav=(0.220,0.193,0.863) replan_count=6 collision_count=0

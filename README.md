@@ -493,8 +493,8 @@ offline_start_yaw: 0.0
 
 ```bash
 ros2 launch 3dnav_bringup navigation.launch offline_test:=true \
-  offline_start_x:=-1.5 \
-  offline_start_y:=3.2 \
+  offline_start_x:=3.5 \
+  offline_start_y:=5.5 \
   offline_start_z:=0.0
 ```
 
